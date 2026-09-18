@@ -2036,6 +2036,7 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody>
+                        
                         {clientSales.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", color: "#94A3B8", padding: "20px" }}>Немає історії замовлень</td></tr>}
                         {clientSales.map(s => {
                           const itemProfit = s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
