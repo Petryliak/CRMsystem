@@ -157,6 +157,7 @@ export default function Dashboard() {
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
   
   const [selectedClientForDetails, setSelectedClientForDetails] = useState<Client | null>(null);
+  const [selectedEmployeeForDetails, setSelectedEmployeeForDetails] = useState<Employee | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   const [productForm, setProductForm] = useState({ name: "", category: "", price: "", costPrice: "", type: "clothing" as "clothing" | "simple", simpleQuantity: "", sizes: { S: "", M: "", L: "", XL: "", XXL: "" } as Record<string, any> });
@@ -1464,12 +1465,18 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {employees.map((emp) => {
+                      // Всі продажі співробітника (для фінансових підрахунків з урахуванням передоплат за відмови)
                       const empSales = sales.filter(s => s.employee_name === emp.email || s.employee_name === emp.name);
+                      
+                      // ТІЛЬКИ УСПІШНІ продажі (без "Відмова") для лічильника та списку речей
+                      const successfulEmpSales = empSales.filter(s => s.status !== 'Відмова');
+                      
                       const empTurnover = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? Number(s.total_price) : Number(s.prepayment)), 0);
                       const empProfit = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? (s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price))) : Number(s.prepayment)), 0);
                       
                       const soldItemsMap: Record<string, number> = {};
-                      empSales.forEach(s => {
+                      // Рахуємо речі тільки з успішних продажів
+                      successfulEmpSales.forEach(s => {
                         soldItemsMap[s.product_name] = (soldItemsMap[s.product_name] || 0) + s.quantity;
                       });
                       const soldItemsList = Object.entries(soldItemsMap).map(([name, qty]) => `${name} (${qty} шт)`).join(', ');
@@ -1482,17 +1489,22 @@ export default function Dashboard() {
                           </td>
                           <td className="table-cell no-print" style={{ color: "#64748B", fontSize: "12px", verticalAlign: "top" }}>Л: <b style={{ color: "#0F172A" }}>{emp.email || "—"}</b><br/>П: <b style={{ color: "#0F172A" }}>{emp.password || "—"}</b></td>
                           <td className="table-cell" style={{ verticalAlign: "top" }}>
-                            <div style={{ fontWeight: "800", color: "#0F172A" }}>Всього {empSales.length} продажів</div>
+                            <div style={{ fontWeight: "800", color: "#0F172A" }}>Всього {successfulEmpSales.length} успішних продажів</div>
                             <div style={{ fontSize: "12px", color: "#64748B", marginTop: "4px", lineHeight: "1.4", maxWidth: "250px" }}>
-                              {soldItemsList || "Ще немає продажів"}
+                              {soldItemsList || "Ще немає успішних продажів"}
                             </div>
                           </td>
                           <td className="table-cell" style={{ color: "#3B82F6", fontWeight: "800", verticalAlign: "top" }}><FormatMoney amount={empTurnover} /></td>
                           <td className="table-cell" style={{ color: "#10B981", fontWeight: "800", verticalAlign: "top" }}><FormatMoney amount={empProfit} /></td>
                           <td className="table-cell no-print" style={{ textAlign: "center", verticalAlign: "top" }}>
-                            <button onClick={() => handleDeleteEmployee(emp.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }}>
-                              <Trash2 size={18} />
-                            </button>
+                            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}>
+                              <button onClick={() => setSelectedEmployeeForDetails(emp)} style={{ border: "none", background: "#EFF6FF", color: "#3B82F6", padding: "8px 12px", borderRadius: "8px", fontWeight: 700, fontSize: "12px", cursor: "pointer", transition: "all 0.2s", display: "flex", alignItems: "center", gap: "4px" }} onMouseEnter={e => e.currentTarget.style.backgroundColor = "#DBEAFE"} onMouseLeave={e => e.currentTarget.style.backgroundColor = "#EFF6FF"}>
+                                <FileText size={14} /> Звіт
+                              </button>
+                              <button onClick={() => handleDeleteEmployee(emp.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }}>
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )
@@ -2052,6 +2064,101 @@ export default function Dashboard() {
                                   {s.status}
                                 </span>
                                 {s.ttn && <div style={{ fontSize: "11px", color: "#64748B", fontFamily: "monospace" }}>{s.ttn}</div>}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              );
+            })()}
+
+          </div>
+        </div>
+      )}
+
+      {selectedEmployeeForDetails && (
+        <div className="modal-overlay-fixed" style={{ zIndex: 1000 }}>
+          <div className="modal-box-fixed print-modal" style={{ maxWidth: "800px" }}>
+            
+            <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
+              <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                <div style={{ width: "48px", height: "48px", borderRadius: "14px", backgroundColor: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#3B82F6" }}>
+                  <Briefcase size={24} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "22px", fontWeight: "800", color: "#0F172A", margin: "0 0 4px 0" }}>Звіт співробітника: {selectedEmployeeForDetails.name}</h3>
+                  <p style={{ fontSize: "13px", color: "#64748B", margin: 0, fontWeight: "500" }}>{selectedEmployeeForDetails.role}</p>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "12px" }}>
+                <button onClick={() => window.print()} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#0F172A", color: "#FFFFFF", border: "none", padding: "8px 14px", borderRadius: "10px", fontSize: "13px", fontWeight: "700", cursor: "pointer" }}><Printer size={16} /><span>PDF Звіт</span></button>
+                <button onClick={() => setSelectedEmployeeForDetails(null)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B" }}><X size={20} /></button>
+              </div>
+            </div>
+
+            <div style={{ display: "none" }} className="print:block mb-6">
+              <h2 style={{ fontSize: "24px", fontWeight: "800", marginBottom: "4px" }}>Аналітика співробітника</h2>
+              <p style={{ color: "#0F172A", fontSize: "16px", fontWeight: 700 }}>{selectedEmployeeForDetails.name} ({selectedEmployeeForDetails.role})</p>
+              <p style={{ color: "#64748B", fontSize: "12px", marginTop: "4px" }}>Створено: {new Date().toLocaleDateString('uk-UA')}</p>
+            </div>
+
+            {(() => {
+              const empSales = sales.filter(s => s.employee_name === selectedEmployeeForDetails.email || s.employee_name === selectedEmployeeForDetails.name);
+              const successfulSales = empSales.filter(s => s.status !== 'Відмова');
+              const totalTurnover = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? Number(s.total_price) : Number(s.prepayment)), 0);
+              const totalProfit = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? (s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price))) : Number(s.prepayment)), 0);
+              const totalItems = successfulSales.reduce((acc, s) => acc + Number(s.quantity), 0);
+
+              return (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "24px" }}>
+                    <div style={{ padding: "16px", backgroundColor: "#F8FAFC", borderRadius: "16px", border: "1px solid #F1F5F9" }}>
+                      <p style={{ fontSize: "12px", color: "#64748B", marginBottom: "4px", fontWeight: "600" }}>Успішно продано</p>
+                      <p style={{ fontSize: "24px", color: "#0F172A", fontWeight: "800", margin: 0 }}>{totalItems} шт.</p>
+                    </div>
+                    <div style={{ padding: "16px", backgroundColor: "#F8FAFC", borderRadius: "16px", border: "1px solid #F1F5F9" }}>
+                      <p style={{ fontSize: "12px", color: "#64748B", marginBottom: "4px", fontWeight: "600" }}>Згенерований оборот</p>
+                      <p style={{ fontSize: "24px", color: "#3B82F6", fontWeight: "800", margin: 0 }}><FormatMoney amount={totalTurnover} /></p>
+                    </div>
+                    <div style={{ padding: "16px", backgroundColor: "#F8FAFC", borderRadius: "16px", border: "1px solid #F1F5F9" }}>
+                      <p style={{ fontSize: "12px", color: "#64748B", marginBottom: "4px", fontWeight: "600" }}>Принесений дохід</p>
+                      <p style={{ fontSize: "24px", color: totalProfit >= 0 ? "#10B981" : "#EF4444", fontWeight: "800", margin: 0 }}><FormatMoney amount={totalProfit} showSign={true}/></p>
+                    </div>
+                  </div>
+
+                  <h4 style={{ fontSize: "15px", fontWeight: "800", color: "#0F172A", marginBottom: "12px" }}>Детальна історія операцій</h4>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", minWidth: "600px" }}>
+                      <thead>
+                        <tr>
+                          <th className="table-head-cell" style={{ textAlign: "left" }}>Дата</th>
+                          <th className="table-head-cell" style={{ textAlign: "left" }}>Товар</th>
+                          <th className="table-head-cell" style={{ textAlign: "left" }}>Клієнт</th>
+                          <th className="table-head-cell" style={{ textAlign: "center" }}>К-сть</th>
+                          <th className="table-head-cell" style={{ textAlign: "right" }}>Сума</th>
+                          <th className="table-head-cell" style={{ textAlign: "right" }}>Дохід</th>
+                          <th className="table-head-cell" style={{ textAlign: "left" }}>Статус</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {empSales.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "#94A3B8", padding: "20px" }}>Немає історії продажів</td></tr>}
+                        {empSales.map(s => {
+                          const itemProfit = s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
+                          return (
+                            <tr key={s.id} className="table-row">
+                              <td className="table-cell" style={{ color: "#64748B", fontWeight: 600 }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
+                              <td className="table-cell" style={{ fontWeight: 700, color: "#0F172A" }}>{s.product_name} {s.selected_size ? `(${s.selected_size})` : ""}</td>
+                              <td className="table-cell" style={{ fontWeight: 600, color: "#475569" }}>{s.customer_name || "Роздріб"}</td>
+                              <td className="table-cell" style={{ fontWeight: 700, textAlign: "center" }}>{s.quantity}</td>
+                              <td className="table-cell" style={{ fontWeight: 800, color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
+                              <td className="table-cell" style={{ fontWeight: 800, color: itemProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={itemProfit} /></td>
+                              <td className="table-cell">
+                                <span style={{ fontSize: "11px", fontWeight: "700", padding: "4px 8px", borderRadius: "6px", backgroundColor: s.status === 'Отримано' ? '#ECFDF5' : s.status === 'Відмова' ? '#FEF2F2' : '#FFFBEB', color: s.status === 'Отримано' ? '#059669' : s.status === 'Відмова' ? '#DC2626' : '#D97706', display: "inline-block" }}>
+                                  {s.status}
+                                </span>
                               </td>
                             </tr>
                           )
