@@ -212,13 +212,18 @@ export default function Dashboard() {
 
       const { data: ownerCrm } = await supabase.from("crm_users").select("*").eq("id", emp.user_id).single();
       if (ownerCrm && ownerCrm.email !== SUPER_ADMIN_EMAIL) {
-        const isPaid = ownerCrm.plan && (ownerCrm.plan.includes("Pro") || ownerCrm.plan.includes("Business") || ownerCrm.plan.includes("Безліміт") || ownerCrm.plan === "Малий бізнес");
+        const ownerPlan = ownerCrm.plan || "Пробний період";
+        const isFreePlan = ownerPlan === "Малий бізнес" || ownerPlan === "Безліміт (Супер-Адмін)";
         const createdAt = new Date(ownerCrm.created_at || new Date());
         let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
         if (daysPassed < 0) daysPassed = 0; 
         
-        if (ownerCrm.plan === "Пробний період" && daysPassed >= 30) {
+        const isExpired = daysPassed >= 30 && !isFreePlan;
+        const isBlocked = ownerPlan === "Заблоковано";
+
+        if (isExpired || isBlocked) {
           setIsTrialExpired(true);
+          setUserPlan(ownerPlan);
           setLoading(false);
           return; 
         }
@@ -252,17 +257,23 @@ export default function Dashboard() {
         setPaymentDateStr("Необмежено");
         setDaysToPay(999);
       } else {
-        setUserPlan(crmUser.plan || "Пробний період");
+        const currentPlan = crmUser.plan || "Пробний період";
+        setUserPlan(currentPlan);
+        const isFreePlan = currentPlan === "Малий бізнес" || currentPlan === "Безліміт (Супер-Адмін)";
+        
         const createdAt = new Date(crmUser.created_at || new Date());
         let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
         if (daysPassed < 0) daysPassed = 0; 
         
         const nextPayDate = new Date(createdAt);
         nextPayDate.setDate(nextPayDate.getDate() + 30);
-        setPaymentDateStr(nextPayDate.toLocaleDateString('uk-UA'));
-        setDaysToPay(Math.max(0, 30 - daysPassed));
+        setPaymentDateStr(isFreePlan ? "Необмежено" : nextPayDate.toLocaleDateString('uk-UA'));
+        setDaysToPay(isFreePlan ? 999 : Math.max(0, 30 - daysPassed));
 
-        if (crmUser.plan === "Пробний період" && daysPassed >= 30) {
+        const isExpired = daysPassed >= 30 && !isFreePlan;
+        const isBlocked = currentPlan === "Заблоковано";
+
+        if (isExpired || isBlocked) {
           setIsTrialExpired(true);
           setLoading(false);
           return; 
@@ -387,7 +398,6 @@ export default function Dashboard() {
     // ====== ПЕРЕВІРКА ЛІМІТУ ДЛЯ ТАРИФУ "МАЛИЙ БІЗНЕС" ======
     if (userPlan === "Малий бізнес" || userPlan === "Безкоштовно") {
       const currentMonth = new Date().toISOString().slice(0, 7);
-      // РАХУЄМО ОДИНИЦІ ТОВАРУ (ШТУКИ) ЗА МІСЯЦЬ!
       const salesThisMonthItems = sales
         .filter(s => s.created_at.startsWith(currentMonth))
         .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
@@ -539,6 +549,17 @@ export default function Dashboard() {
     else { setCrmUsersList(crmUsersList.filter(u => u.id !== id)); }
   };
 
+  const handleExtendSubscription = async (id: string) => {
+    if (!confirm("Продовжити підписку цьому користувачу ще на 30 днів (оновити дату початку)?")) return;
+    const newDate = new Date().toISOString();
+    const { error } = await supabase.from("crm_users").update({ created_at: newDate }).eq("id", id);
+    if (error) { alert("Помилка: " + error.message); } 
+    else { 
+      setCrmUsersList(crmUsersList.map(u => u.id === id ? { ...u, created_at: newDate } : u)); 
+      alert("Підписку успішно продовжено на 30 днів!");
+    }
+  };
+
   const handleLogout = async () => { localStorage.removeItem("employee_session"); await supabase.auth.signOut(); router.push("/login"); };
 
   const handleSendReceiptToTelegram = async (e: React.FormEvent) => {
@@ -559,10 +580,8 @@ export default function Dashboard() {
     finally { setIsSendingReceipt(false); }
   };
 
-  // ФУНКЦІЯ: Перехід на безкоштовний тариф після завершення 30 днів
   const handleConfirmFreePlan = async () => {
     const currentMonth = new Date().toISOString().slice(0, 7);
-    // РАХУЄМО ОДИНИЦІ ТОВАРУ (ШТУКИ) ЗА МІСЯЦЬ!
     const salesThisMonthItems = sales
       .filter(s => s.created_at.startsWith(currentMonth))
       .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
@@ -594,6 +613,7 @@ export default function Dashboard() {
   // ЕКРАН ОПЛАТИ / ВИБОРУ ТАРИФУ (ПІСЛЯ 30 ДНІВ)
   // ==========================================
   if (isTrialExpired) {
+    const isBlockedStatus = userPlan === "Заблоковано";
     return (
       <div className="payment-wrapper-full">
         <style>{`
@@ -693,8 +713,12 @@ export default function Dashboard() {
 
             <div className="left-center">
               <div className="check-icon"><Check size={36} color="#FFF" strokeWidth={3} /></div>
-              <h2 className="main-heading">Час обрати тариф!</h2>
-              <p className="sub-heading">Ваш пробний період завершено. Ви можете обрати платний тариф для необмежених можливостей, або залишитись на безкоштовному (до 20 проданих речей на місяць).</p>
+              <h2 className="main-heading">{isBlockedStatus ? "Акаунт заблоковано" : "Час обрати тариф!"}</h2>
+              <p className="sub-heading">
+                {isBlockedStatus 
+                  ? "Доступ до вашого робочого простору призупинено адміністратором. Будь ласка, зв'яжіться з підтримкою." 
+                  : "Ваш оплачений або пробний період завершено. Ви можете обрати платний тариф для необмежених можливостей, або залишитись на безкоштовному."}
+              </p>
               
               <div className="card-box">
                 <div className="card-top">
@@ -1040,43 +1064,68 @@ export default function Dashboard() {
               </div>
 
               <div className="table-responsive">
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", minWidth: "600px" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", minWidth: "800px" }}>
                   <thead>
                     <tr>
                       <th className="table-head-cell" style={{ textAlign: "left" }}>Email клієнта</th>
-                      <th className="table-head-cell" style={{ textAlign: "left" }}>Дата реєстрації</th>
-                      <th className="table-head-cell" style={{ textAlign: "left" }}>Дні у системі</th>
-                      <th className="table-head-cell" style={{ textAlign: "left" }}>Керування Тарифом</th>
-                      <th className="table-head-cell" style={{ textAlign: "center" }}>Дії</th>
+                      <th className="table-head-cell" style={{ textAlign: "left" }}>Тариф</th>
+                      <th className="table-head-cell" style={{ textAlign: "center" }}>Статус / Дні</th>
+                      <th className="table-head-cell" style={{ textAlign: "center" }}>Дії (Керування)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {crmUsersList.filter(u => u.email.toLowerCase().includes(adminSearch.toLowerCase())).map(u => {
-                      const days = Math.floor((new Date().getTime() - new Date(u.created_at).getTime()) / (1000 * 3600 * 24));
-                      const isPaid = u.plan.includes("Pro") || u.plan.includes("Business") || u.plan.includes("Безліміт");
-                      const isExpired = days >= 30;
+                      const daysPassed = Math.floor((new Date().getTime() - new Date(u.created_at).getTime()) / (1000 * 3600 * 24));
+                      const isFree = u.plan === "Малий бізнес" || u.plan === "Безліміт (Супер-Адмін)";
+                      const isBlocked = u.plan === "Заблоковано";
+                      const isExpired = daysPassed >= 30 && !isFree && !isBlocked;
+                      const daysLeft = Math.max(0, 30 - daysPassed);
+
                       return (
                         <tr key={u.id} className="table-row">
-                          <td className="table-cell" style={{ fontWeight: "700", color: "#0F172A" }}>{u.email}</td>
-                          <td className="table-cell" style={{ color: "#64748B", fontWeight: "500" }}>{new Date(u.created_at).toLocaleDateString('uk-UA')}</td>
-                          <td className="table-cell" style={{ fontWeight: "800", color: isExpired && !isPaid ? "#EF4444" : "#10B981" }}>{Math.max(0, days)} днів</td>
+                          <td className="table-cell" style={{ fontWeight: "700", color: "#0F172A" }}>
+                            {u.email}
+                            <br/>
+                            <span style={{fontSize: "11px", color: "#64748B", fontWeight: 500}}>Початок: {new Date(u.created_at).toLocaleDateString('uk-UA')}</span>
+                          </td>
                           <td className="table-cell">
                             <select 
                               value={u.plan} 
                               onChange={(e) => handleChangeUserPlan(u.id, e.target.value)}
-                              style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #CBD5E1", fontSize: "13px", fontWeight: "700", backgroundColor: isPaid ? "#DBEAFE" : "#F1F5F9", color: isPaid ? "#1D4ED8" : "#475569", cursor: "pointer", outline: "none" }}
+                              style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #CBD5E1", fontSize: "13px", fontWeight: "700", backgroundColor: isBlocked ? "#FEF2F2" : (isFree ? "#F8FAFC" : "#DBEAFE"), color: isBlocked ? "#EF4444" : "#0F172A", cursor: "pointer", outline: "none", width: "100%", maxWidth: "160px" }}
                             >
-                              <option value="Пробний період">Пробний період (30 днів)</option>
+                              <option value="Пробний період">Пробний (30 днів)</option>
                               <option value="Малий бізнес">Малий бізнес (Безкошт)</option>
                               <option value="Pro">Pro ($5)</option>
                               <option value="Business">Business ($8)</option>
                               <option value="Безліміт (Супер-Адмін)">Безліміт (Супер-Адмін)</option>
+                              <option value="Заблоковано">Заблокувати вхід</option>
                             </select>
                           </td>
                           <td className="table-cell" style={{ textAlign: "center" }}>
-                            <button onClick={() => handleDeleteCrmUser(u.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Видалити клієнта">
-                              <Trash2 size={18} />
-                            </button>
+                            {isBlocked ? (
+                              <span style={{ fontSize: "12px", fontWeight: "800", color: "#EF4444", backgroundColor: "#FEF2F2", padding: "6px 10px", borderRadius: "8px", whiteSpace: "nowrap" }}>Заблоковано</span>
+                            ) : isExpired ? (
+                              <span style={{ fontSize: "12px", fontWeight: "800", color: "#EF4444", backgroundColor: "#FEF2F2", padding: "6px 10px", borderRadius: "8px", whiteSpace: "nowrap" }}>Час вийшов</span>
+                            ) : isFree ? (
+                              <span style={{ fontSize: "12px", fontWeight: "800", color: "#3B82F6", backgroundColor: "#EFF6FF", padding: "6px 10px", borderRadius: "8px", whiteSpace: "nowrap" }}>Необмежено</span>
+                            ) : (
+                              <span style={{ fontSize: "12px", fontWeight: "800", color: daysLeft <= 3 ? "#F59E0B" : "#10B981", backgroundColor: daysLeft <= 3 ? "#FFFBEB" : "#ECFDF5", padding: "6px 10px", borderRadius: "8px", whiteSpace: "nowrap" }}>
+                                Залишилось: {daysLeft} дн.
+                              </span>
+                            )}
+                          </td>
+                          <td className="table-cell" style={{ textAlign: "center" }}>
+                            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}>
+                              {!isFree && !isBlocked && (
+                                <button onClick={() => handleExtendSubscription(u.id)} style={{ border: "none", background: "#10B981", color: "#FFF", padding: "8px 12px", borderRadius: "8px", fontWeight: 700, fontSize: "12px", cursor: "pointer", transition: "all 0.2s" }} title="Дати ще 30 днів">
+                                  Продовжити
+                                </button>
+                              )}
+                              <button onClick={() => handleDeleteCrmUser(u.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px", display: "inline-flex", alignItems: "center", justifyContent: "center" }} title="Видалити клієнта">
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )
