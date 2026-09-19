@@ -8,7 +8,7 @@ import {
   Users, Truck, PieChart, Settings, Calendar, 
   Wallet, TrendingUp, LogOut, Plus, Loader2, Image as ImageIcon, 
   Trash2, Briefcase, Printer, X, CheckCircle, XCircle, Menu,
-  Hash, Coins, User, Check, ArrowRight, ChevronLeft, ChevronRight, FileText, Shield, Send, UploadCloud, Copy, ShieldCheck, Mail, Search, Headset, Phone
+  Hash, Coins, User, Check, ArrowRight, ChevronLeft, ChevronRight, FileText, Shield, Send, UploadCloud, Copy, ShieldCheck, Mail, Search, Headset, Phone, Edit
 } from "lucide-react";
 
 // !!! ТВОЯ ПОШТА СУПЕР-АДМІНА !!!
@@ -17,6 +17,9 @@ const SUPER_ADMIN_EMAIL = "davidpetrilak4@gmail.com";
 // !!! ДАНІ ДЛЯ TELEGRAM БОТА !!!
 const TELEGRAM_BOT_TOKEN = "8786054702:AAG837HCBYkgW2E_UqgJ3YEiEYaW9paNFfA"; 
 const TELEGRAM_CHAT_ID = "1374528287"; 
+
+// Початкові розміри для взуття (від 32 до 48)
+const initialShoeSizes = Array.from({length: 17}, (_, i) => String(32 + i)).reduce((acc, sz) => ({...acc, [sz]: ""}), {});
 
 const CustomSelect = ({ value, onChange, options, placeholder, triggerStyle, dropdownStyle, triggerClassName, wrapperClassName }: any) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -113,7 +116,7 @@ const FormatNumber = ({ num }: { num: number }) => (
   <span style={{ fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 700, letterSpacing: "-0.5px" }}>{(Number(num) || 0).toLocaleString("uk-UA")}</span>
 );
 
-interface Product { id: string; name: string; category: string; price: number; cost_price: number; type: "clothing" | "simple"; sizes: Record<string, number>; quantity: number; image_url: string; }
+interface Product { id: string; name: string; category: string; price: number; cost_price: number; type: "clothing" | "simple" | "shoes"; sizes: Record<string, number>; quantity: number; image_url: string; }
 interface Sale { id: string; product_id?: string; product_name: string; selected_size?: string; quantity: number; total_price: number; cost_price: number; profit: number; customer_name?: string; created_at: string; status: string; prepayment: number; ttn: string; employee_name: string; }
 interface Expense { id: string; description: string; category: string; amount: number; created_at: string; }
 interface Employee { id: string; name: string; role: string; phone: string; email?: string; password?: string; user_id?: string; }
@@ -160,7 +163,12 @@ export default function Dashboard() {
   const [selectedEmployeeForDetails, setSelectedEmployeeForDetails] = useState<Employee | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
-  const [productForm, setProductForm] = useState({ name: "", category: "", price: "", costPrice: "", type: "clothing" as "clothing" | "simple", simpleQuantity: "", sizes: { S: "", M: "", L: "", XL: "", XXL: "" } as Record<string, any> });
+  // Нові стейти для складу
+  const [productSearch, setProductSearch] = useState("");
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+
+  const [productForm, setProductForm] = useState({ name: "", category: "", price: "", costPrice: "", type: "clothing" as "clothing" | "simple" | "shoes", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" } as Record<string, any>, shoeSizes: initialShoeSizes as Record<string, any> });
   const [saleForm, setSaleForm] = useState({ product_id: "", selected_size: "", quantity: "1", total_price: "", customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
   const [expenseForm, setExpenseForm] = useState({ description: "", category: "Загальні", amount: "", created_at: new Date().toISOString().slice(0, 10) });
   const [employeeForm, setEmployeeForm] = useState({ name: "", role: "", phone: "", email: "", password: "" });
@@ -207,7 +215,7 @@ export default function Dashboard() {
         const isPaid = ownerCrm.plan && (ownerCrm.plan.includes("Pro") || ownerCrm.plan.includes("Business") || ownerCrm.plan.includes("Безліміт") || ownerCrm.plan === "Малий бізнес");
         const createdAt = new Date(ownerCrm.created_at || new Date());
         let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
-        if (daysPassed < 0) daysPassed = 0; // Захист від зміщених дат у майбутнє
+        if (daysPassed < 0) daysPassed = 0; 
         
         if (ownerCrm.plan === "Пробний період" && daysPassed >= 30) {
           setIsTrialExpired(true);
@@ -247,7 +255,7 @@ export default function Dashboard() {
         setUserPlan(crmUser.plan || "Пробний період");
         const createdAt = new Date(crmUser.created_at || new Date());
         let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
-        if (daysPassed < 0) daysPassed = 0; // Захист від майбутніх дат! Не більше 30.
+        if (daysPassed < 0) daysPassed = 0; 
         
         const nextPayDate = new Date(createdAt);
         nextPayDate.setDate(nextPayDate.getDate() + 30);
@@ -289,6 +297,24 @@ export default function Dashboard() {
   };
 
   const handleDeleteProduct = async (id: string) => { if (!confirm("Видалити товар?")) return; await supabase.from("products").delete().eq("id", id); setProducts(products.filter(p => p.id !== id)); };
+  
+  // ФУНКЦІЯ РЕДАГУВАННЯ ТОВАРУ
+  const handleEditProduct = (prod: Product) => {
+    setEditingProductId(prod.id);
+    setProductForm({
+      name: prod.name,
+      category: prod.category,
+      price: prod.price ? prod.price.toString() : "",
+      costPrice: prod.cost_price ? prod.cost_price.toString() : "",
+      type: prod.type,
+      simpleQuantity: prod.quantity ? prod.quantity.toString() : "",
+      sizes: prod.type === 'clothing' ? { XS: "", S: "", M: "", L: "", XL: "", XXL: "", ...(prod.sizes || {}) } : { XS: "", S: "", M: "", L: "", XL: "", XXL: "" },
+      shoeSizes: prod.type === 'shoes' ? { ...initialShoeSizes, ...(prod.sizes || {}) } : initialShoeSizes,
+    });
+    setImagePreview(prod.image_url || null);
+    setIsProductModalOpen(true);
+  };
+
   const handleDeleteSale = async (id: string) => { if (!confirm("Видалити запис?")) return; await supabase.from("sales").delete().eq("id", id); setSales(sales.filter(s => s.id !== id)); };
   const handleDeleteExpense = async (id: string) => { if (!confirm("Видалити витрату?")) return; await supabase.from("expenses").delete().eq("id", id); setExpenses(expenses.filter(e => e.id !== id)); };
   const handleDeleteEmployee = async (id: string) => { if (!confirm("Видалити співробітника?")) return; await supabase.from("employees").delete().eq("id", id); setEmployees(employees.filter(e => e.id !== id)); };
@@ -313,22 +339,36 @@ export default function Dashboard() {
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault(); if (!userId) return;
     const isClothing = productForm.type === "clothing";
+    const isShoes = productForm.type === "shoes";
     const cleanSizes: Record<string, number> = {};
-    if (isClothing) { Object.entries(productForm.sizes).forEach(([k, v]) => { cleanSizes[k] = Number(v) || 0; }); }
-    const totalQty = isClothing ? Object.values(cleanSizes).reduce((a, b) => a + b, 0) : Number(productForm.simpleQuantity) || 0;
     
-    const newProduct = { user_id: userId, name: productForm.name, category: productForm.category || "Без категорії", price: Number(productForm.price) || 0, cost_price: Number(productForm.costPrice) || 0, type: productForm.type, sizes: isClothing ? cleanSizes : {}, quantity: totalQty, image_url: imagePreview || "" };
-    const { data, error } = await supabase.from("products").insert([newProduct]).select();
-    if (error) { alert("Помилка бази даних: " + error.message); return; }
-    if (data) setProducts(prev => prev.find(p => p.id === data[0].id) ? prev : [data[0] as Product, ...prev]);
-    setIsProductModalOpen(false); setImagePreview(null); setProductForm({ name: "", category: "", price: "", costPrice: "", type: "clothing", simpleQuantity: "", sizes: { S: "", M: "", L: "", XL: "", XXL: "" } });
+    if (isClothing) { Object.entries(productForm.sizes).forEach(([k, v]) => { cleanSizes[k] = Number(v) || 0; }); }
+    else if (isShoes) { Object.entries(productForm.shoeSizes).forEach(([k, v]) => { cleanSizes[k] = Number(v) || 0; }); }
+    
+    const totalQty = (isClothing || isShoes) ? Object.values(cleanSizes).reduce((a, b) => a + b, 0) : Number(productForm.simpleQuantity) || 0;
+    
+    const prodData = { name: productForm.name, category: productForm.category || "Без категорії", price: Number(productForm.price) || 0, cost_price: Number(productForm.costPrice) || 0, type: productForm.type, sizes: (isClothing || isShoes) ? cleanSizes : {}, quantity: totalQty, image_url: imagePreview || "" };
+    
+    if (editingProductId) {
+      const { data, error } = await supabase.from("products").update(prodData).eq("id", editingProductId).select();
+      if (error) { alert("Помилка бази даних: " + error.message); return; }
+      if (data) setProducts(prev => prev.map(p => p.id === editingProductId ? data[0] as Product : p));
+    } else {
+      const newProduct = { user_id: userId, ...prodData };
+      const { data, error } = await supabase.from("products").insert([newProduct]).select();
+      if (error) { alert("Помилка бази даних: " + error.message); return; }
+      if (data) setProducts(prev => prev.find(p => p.id === data[0].id) ? prev : [data[0] as Product, ...prev]);
+    }
+    
+    setIsProductModalOpen(false); setImagePreview(null); setEditingProductId(null);
+    setProductForm({ name: "", category: "", price: "", costPrice: "", type: "clothing", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" }, shoeSizes: initialShoeSizes });
   };
 
   const handleSelectProductForSale = (prodId: string) => {
     const selected = products.find(p => p.id === prodId);
     if (selected) {
       const availableSizes = selected.sizes ? Object.entries(selected.sizes).filter(([_, cnt]) => cnt > 0) : [];
-      const initialSize = selected.type === "clothing" && availableSizes.length > 0 ? availableSizes[0][0] : "";
+      const initialSize = (selected.type === "clothing" || selected.type === "shoes") && availableSizes.length > 0 ? availableSizes[0][0] : "";
       setSaleForm({ ...saleForm, product_id: prodId, selected_size: initialSize, quantity: "1", total_price: selected.price.toString() });
     }
   };
@@ -370,7 +410,7 @@ export default function Dashboard() {
     let updatedSizes = { ...(selectedProd.sizes || {}) }; 
     let updatedTotalQuantity = selectedProd.quantity || 0;
 
-    if (selectedProd.type === "clothing" || (selectedProd.sizes && Object.keys(selectedProd.sizes).length > 0)) {
+    if (selectedProd.type === "clothing" || selectedProd.type === "shoes" || (selectedProd.sizes && Object.keys(selectedProd.sizes).length > 0)) {
       const sizeKey = saleForm.selected_size || ""; 
       const currentSizeStock = updatedSizes[sizeKey] || 0;
       if (currentSizeStock < qtyToSell) { alert(`Недостатньо розміру ${sizeKey}! В наявності: ${currentSizeStock} шт.`); return; }
@@ -426,7 +466,7 @@ export default function Dashboard() {
       if (selectedProd) {
         let updatedSizes = { ...selectedProd.sizes };
         let updatedTotalQuantity = selectedProd.quantity || 0;
-        if (selectedProd.type === "clothing" && sale.selected_size) {
+        if ((selectedProd.type === "clothing" || selectedProd.type === "shoes") && sale.selected_size) {
           updatedSizes[sale.selected_size] = (updatedSizes[sale.selected_size] || 0) + sale.quantity;
           updatedTotalQuantity += sale.quantity;
         } else {
@@ -768,6 +808,8 @@ export default function Dashboard() {
     if (filterMode === "date") return e.created_at.slice(0, 10) === selectedDate;
     return true;
   });
+
+  const filteredInventoryProducts = products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()));
 
   let totalTurnover = 0;
   let totalExpenses = filteredExpenses.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
@@ -1143,7 +1185,7 @@ export default function Dashboard() {
                   <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                     <button onClick={() => setIsSaleModalOpen(true)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px", borderRadius: "14px", border: "none", backgroundColor: "#1A9682", color: "#FFF", cursor: "pointer", fontWeight: "700", fontSize: "14px", boxShadow: "0 4px 12px rgba(26, 150, 130, 0.2)" }}><span style={{ display: "flex", alignItems: "center", gap: "10px" }}><ShoppingCart size={20} /> Провести продажу</span><Plus size={20} /></button>
                     {userRole === "owner" && (
-                      <button onClick={() => setIsProductModalOpen(true)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px", borderRadius: "14px", border: "1px solid #E2E8F0", backgroundColor: "#F8FAFC", cursor: "pointer", fontWeight: "600", fontSize: "14px", color: "#0F172A" }}><span style={{ display: "flex", alignItems: "center", gap: "10px" }}><Package size={20} color="#1A9682" /> Додати товар</span><Plus size={20} color="#94A3B8" /></button>
+                      <button onClick={() => { setEditingProductId(null); setProductForm({ name: "", category: "", price: "", costPrice: "", type: "clothing", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" }, shoeSizes: initialShoeSizes }); setImagePreview(null); setIsProductModalOpen(true); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px", borderRadius: "14px", border: "1px solid #E2E8F0", backgroundColor: "#F8FAFC", cursor: "pointer", fontWeight: "600", fontSize: "14px", color: "#0F172A" }}><span style={{ display: "flex", alignItems: "center", gap: "10px" }}><Package size={20} color="#1A9682" /> Додати товар</span><Plus size={20} color="#94A3B8" /></button>
                     )}
                     {userRole === "owner" && (
                       <button onClick={() => setIsExpenseModalOpen(true)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px", borderRadius: "14px", border: "1px solid #E2E8F0", backgroundColor: "#F8FAFC", cursor: "pointer", fontWeight: "600", fontSize: "14px", color: "#0F172A" }}><span style={{ display: "flex", alignItems: "center", gap: "10px" }}><CreditCard size={20} color="#F59E0B" /> Внести витрату</span><Plus size={20} color="#94A3B8" /></button>
@@ -1227,13 +1269,25 @@ export default function Dashboard() {
               </div>
 
               <div className="card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "16px" }}>
                   <div><h3 style={{ fontSize: "18px", fontWeight: "800", margin: 0 }}>Асортимент</h3></div>
-                  {userRole === "owner" && (
-                    <button onClick={() => setIsProductModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#0D9488", color: "#FFFFFF", border: "none", padding: "10px 16px", borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer", boxShadow: "0 4px 12px rgba(13, 148, 136, 0.2)" }}>
-                      <Plus size={18} /><span>Додати</span>
-                    </button>
-                  )}
+                  <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#F8FAFC", padding: "10px 16px", borderRadius: "12px", border: "1px solid #E2E8F0", width: "100%", maxWidth: "300px" }}>
+                      <Search size={18} color="#94A3B8" />
+                      <input 
+                        type="text" 
+                        placeholder="Пошук товару..." 
+                        value={productSearch} 
+                        onChange={e => setProductSearch(e.target.value)}
+                        style={{ border: "none", background: "transparent", outline: "none", fontSize: "14px", width: "100%", fontWeight: "500", color: "#0F172A" }}
+                      />
+                    </div>
+                    {userRole === "owner" && (
+                      <button onClick={() => { setEditingProductId(null); setProductForm({ name: "", category: "", price: "", costPrice: "", type: "clothing", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" }, shoeSizes: initialShoeSizes }); setImagePreview(null); setIsProductModalOpen(true); }} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#0D9488", color: "#FFFFFF", border: "none", padding: "10px 16px", borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer", boxShadow: "0 4px 12px rgba(13, 148, 136, 0.2)", flexShrink: 0 }}>
+                        <Plus size={18} /><span>Додати</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="table-responsive">
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", minWidth: "600px" }}>
@@ -1248,14 +1302,21 @@ export default function Dashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {products.map((prod) => (
+                      {filteredInventoryProducts.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", color: "#94A3B8", padding: "20px" }}>Товарів не знайдено</td></tr>}
+                      {filteredInventoryProducts.map((prod) => (
                         <tr key={prod.id} className="table-row">
-                          <td className="table-cell">{prod.image_url ? <img src={prod.image_url} style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "10px" }} /> : <div style={{ width: "48px", height: "48px", backgroundColor: "#F1F5F9", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center" }}><ImageIcon size={20} color="#94A3B8" /></div>}</td>
+                          <td className="table-cell">
+                            {prod.image_url ? 
+                              <img src={prod.image_url} onClick={() => setZoomedImage(prod.image_url)} style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "10px", cursor: "pointer" }} title="Натисніть, щоб збільшити" /> 
+                              : 
+                              <div style={{ width: "48px", height: "48px", backgroundColor: "#F1F5F9", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center" }}><ImageIcon size={20} color="#94A3B8" /></div>
+                            }
+                          </td>
                           <td className="table-cell" style={{ fontWeight: "700", color: "#0F172A" }}>{prod.name}</td>
                           <td className="table-cell" style={{ fontWeight: "700" }}><FormatMoney amount={prod.price} /></td>
                           {userRole === "owner" && <td className="table-cell" style={{ color: "#64748B", fontWeight: "600" }}><FormatMoney amount={prod.cost_price || 0} /></td>}
                           <td className="table-cell">
-                            {prod.type === "clothing" ? (
+                            {(prod.type === "clothing" || prod.type === "shoes") ? (
                               <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "6px" }}>
                                 {Object.entries(prod.sizes || {}).filter(([_, count]) => count > 0).map(([size, count]) => <span key={size} style={{ fontSize: "11px", padding: "4px 8px", borderRadius: "6px", backgroundColor: "#F1F5F9", color: "#475569", fontWeight: "700" }}>{size}: {String(count)}</span>)}
                               </div>
@@ -1263,8 +1324,9 @@ export default function Dashboard() {
                             <div style={{ fontWeight: "800", color: "#0D9488" }}><FormatNumber num={prod.quantity} /> шт.</div>
                           </td>
                           {userRole === "owner" && (
-                            <td className="table-cell" style={{ textAlign: "right" }}>
-                              <button onClick={() => handleDeleteProduct(prod.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }}><Trash2 size={18} /></button>
+                            <td className="table-cell" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                              <button onClick={() => handleEditProduct(prod)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#3B82F6", padding: "8px" }} title="Редагувати"><Edit size={18} /></button>
+                              <button onClick={() => handleDeleteProduct(prod.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити"><Trash2 size={18} /></button>
                             </td>
                           )}
                         </tr>
@@ -1465,17 +1527,13 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {employees.map((emp) => {
-                      // Всі продажі співробітника (для фінансових підрахунків з урахуванням передоплат за відмови)
                       const empSales = sales.filter(s => s.employee_name === emp.email || s.employee_name === emp.name);
-                      
-                      // ТІЛЬКИ УСПІШНІ продажі (без "Відмова") для лічильника та списку речей
                       const successfulEmpSales = empSales.filter(s => s.status !== 'Відмова');
                       
                       const empTurnover = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? Number(s.total_price) : Number(s.prepayment)), 0);
                       const empProfit = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? (s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price))) : Number(s.prepayment)), 0);
                       
                       const soldItemsMap: Record<string, number> = {};
-                      // Рахуємо речі тільки з успішних продажів
                       successfulEmpSales.forEach(s => {
                         soldItemsMap[s.product_name] = (soldItemsMap[s.product_name] || 0) + s.quantity;
                       });
@@ -1727,7 +1785,7 @@ export default function Dashboard() {
         <div className="modal-overlay-fixed">
           <div className="modal-box-fixed">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Новий товар</h3>
+              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>{editingProductId ? "Редагувати товар" : "Новий товар"}</h3>
               <button onClick={() => setIsProductModalOpen(false)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B" }}><X size={18} /></button>
             </div>
             <form onSubmit={handleSaveProduct} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -1735,8 +1793,8 @@ export default function Dashboard() {
                 <label style={{ fontSize: "13px", fontWeight: "700", color: "#475569", marginBottom: "6px", display: "block" }}>Тип товару</label>
                 <CustomSelect 
                   value={productForm.type} 
-                  onChange={(val: any) => setProductForm({ ...productForm, type: val as "clothing" | "simple" })} 
-                  options={[ {value: "clothing", label: "Одяг (з розмірами S, M, L)"}, {value: "simple", label: "Простий товар (Кава, аксесуари)"} ]}
+                  onChange={(val: any) => setProductForm({ ...productForm, type: val as "clothing" | "simple" | "shoes" })} 
+                  options={[ {value: "clothing", label: "Одяг (розміри XS-XXL)"}, {value: "shoes", label: "Взуття (розміри 32-48)"}, {value: "simple", label: "Без розміру (Аксесуари)"} ]}
                   triggerStyle={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", fontWeight: "600", width: "100%", backgroundColor: "#F8FAFC" }}
                 />
               </div>
@@ -1751,11 +1809,11 @@ export default function Dashboard() {
               <input required type="number" placeholder="Ціна продажу (₴)" value={productForm.price} onChange={e => setProductForm({...productForm, price: e.target.value})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", width: "100%" }} />
               <input type="number" placeholder="Собівартість закупки (₴)" value={productForm.costPrice} onChange={e => setProductForm({...productForm, costPrice: e.target.value})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", width: "100%" }} />
               
-              {productForm.type === "clothing" ? (
+              {productForm.type === "clothing" && (
                 <div style={{ backgroundColor: "#F8FAFC", padding: "16px", borderRadius: "16px", border: "1px solid #F1F5F9" }}>
                   <label style={{ fontSize: "13px", fontWeight: "700", color: "#475569", marginBottom: "12px", display: "block" }}>Залишки по розмірах</label>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "8px" }}>
-                    {["S", "M", "L", "XL", "XXL"].map((sz) => (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "8px" }}>
+                    {["XS", "S", "M", "L", "XL", "XXL"].map((sz) => (
                       <div key={sz} style={{ textAlign: "center" }}>
                         <span style={{ fontSize: "12px", fontWeight: "800", color: "#0F172A", display: "block", marginBottom: "6px" }}>{sz}</span>
                         <input type="number" min="0" value={productForm.sizes[sz] || ""} onChange={e => setProductForm({...productForm, sizes: {...productForm.sizes, [sz]: e.target.value}})} style={{ width: "100%", padding: "10px 4px", borderRadius: "8px", border: "1px solid #CBD5E1", textAlign: "center", fontWeight: "600" }} />
@@ -1763,7 +1821,23 @@ export default function Dashboard() {
                     ))}
                   </div>
                 </div>
-              ) : (
+              )}
+
+              {productForm.type === "shoes" && (
+                <div style={{ backgroundColor: "#F8FAFC", padding: "16px", borderRadius: "16px", border: "1px solid #F1F5F9" }}>
+                  <label style={{ fontSize: "13px", fontWeight: "700", color: "#475569", marginBottom: "12px", display: "block" }}>Розміри взуття</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "8px" }}>
+                    {Array.from({length: 17}, (_, i) => String(32 + i)).map((sz) => (
+                      <div key={sz} style={{ textAlign: "center" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "800", color: "#0F172A", display: "block", marginBottom: "6px" }}>{sz}</span>
+                        <input type="number" min="0" value={productForm.shoeSizes[sz] || ""} onChange={e => setProductForm({...productForm, shoeSizes: {...productForm.shoeSizes, [sz]: e.target.value}})} style={{ width: "100%", padding: "10px 4px", borderRadius: "8px", border: "1px solid #CBD5E1", textAlign: "center", fontWeight: "600", fontSize: "12px" }} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {productForm.type === "simple" && (
                 <input required type="number" placeholder="Загальна кількість на складі" value={productForm.simpleQuantity} onChange={e => setProductForm({...productForm, simpleQuantity: e.target.value})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", width: "100%" }} />
               )}
               
@@ -1835,7 +1909,7 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {selectedProduct && selectedProduct.type === "clothing" && (
+                {selectedProduct && (selectedProduct.type === "clothing" || selectedProduct.type === "shoes") && (
                   <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
                     <div style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Hash size={20} color="#64748B" /></div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -2187,6 +2261,16 @@ export default function Dashboard() {
               <button type="submit" style={{ width: "100%", backgroundColor: "#0D9488", color: "#FFF", border: "none", padding: "16px", borderRadius: "12px", fontWeight: "800", fontSize: "15px", cursor: "pointer", marginTop: "8px", boxShadow: "0 4px 12px rgba(13, 148, 136, 0.3)" }}>Зберегти</button>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* ЗУМ ФОТОГРАФІЇ (МОДАЛКА) */}
+      {zoomedImage && (
+        <div className="modal-overlay-fixed" style={{ zIndex: 10000, cursor: "zoom-out" }} onClick={() => setZoomedImage(null)}>
+            <div style={{ position: "relative", maxWidth: "90%", maxHeight: "90%", display: "flex", justifyContent: "center", alignItems: "center" }} onClick={e => e.stopPropagation()}>
+                <button onClick={() => setZoomedImage(null)} style={{ position: "absolute", top: "-40px", right: "0", background: "none", border: "none", color: "white", cursor: "pointer" }}><X size={32} /></button>
+                <img src={zoomedImage} style={{ maxWidth: "100%", maxHeight: "85vh", borderRadius: "16px", objectFit: "contain", boxShadow: "0 20px 40px rgba(0,0,0,0.3)" }} />
+            </div>
         </div>
       )}
 
