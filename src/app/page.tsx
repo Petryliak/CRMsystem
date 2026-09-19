@@ -21,25 +21,58 @@ const TELEGRAM_CHAT_ID = "1374528287";
 // Початкові розміри для взуття (від 32 до 48)
 const initialShoeSizes = Array.from({length: 17}, (_, i) => String(32 + i)).reduce((acc, sz) => ({...acc, [sz]: ""}), {});
 
-const CustomSelect = ({ value, onChange, options, placeholder, triggerStyle, dropdownStyle, triggerClassName, wrapperClassName }: any) => {
+const CustomSelect = ({ value, onChange, options, placeholder, triggerStyle, dropdownStyle, triggerClassName, wrapperClassName, searchable = false }: any) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { const handleClickOutside = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false); }; document.addEventListener("mousedown", handleClickOutside); return () => document.removeEventListener("mousedown", handleClickOutside); }, []);
+  
+  useEffect(() => { 
+    const handleClickOutside = (e: MouseEvent) => { 
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setIsOpen(false);
+        setSearchTerm("");
+      }
+    }; 
+    document.addEventListener("mousedown", handleClickOutside); 
+    return () => document.removeEventListener("mousedown", handleClickOutside); 
+  }, []);
+  
   const selectedOption = options.find((o: any) => o.value === value) || null;
+  const filteredOptions = searchable && searchTerm 
+    ? options.filter((o: any) => o.label.toLowerCase().includes(searchTerm.toLowerCase()))
+    : options;
+
   return (
     <div ref={ref} className={wrapperClassName} style={{ position: "relative", width: "100%", minWidth: 0 }}>
       <div onClick={() => setIsOpen(!isOpen)} className={triggerClassName} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", userSelect: "none", transition: "all 0.2s", boxSizing: "border-box", ...triggerStyle }}>
-        <span style={{ display: "block", textAlign: "left", lineHeight: "1.3", paddingRight: "8px", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {selectedOption ? selectedOption.label : placeholder}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden" }}>
+          {selectedOption?.image && <img src={selectedOption.image} style={{ width: "24px", height: "24px", borderRadius: "4px", objectFit: "cover", flexShrink: 0 }} alt="" />}
+          <span style={{ display: "block", textAlign: "left", lineHeight: "1.3", paddingRight: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {selectedOption ? selectedOption.label : placeholder}
+          </span>
+        </div>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s", flexShrink: 0, marginLeft: "4px", color: "#64748B" }}><path d="m6 9 6 6 6-6"/></svg>
       </div>
       {isOpen && (
-        <div style={{ position: "absolute", top: "calc(100% + 8px)", left: 0, width: "100%", backgroundColor: "#FFF", borderRadius: "16px", border: "1px solid #E2E8F0", boxShadow: "0 10px 30px rgba(0,0,0,0.1)", zIndex: 1000, maxHeight: "250px", overflowY: "auto", padding: "8px", ...dropdownStyle }}>
-          {options.length === 0 && <div style={{ padding: "12px", textAlign: "center", color: "#94A3B8", fontSize: "13px" }}>Немає варіантів</div>}
-          {options.map((opt: any) => (
-            <div key={opt.value} onClick={() => { onChange(opt.value); setIsOpen(false); }} style={{ padding: "12px 16px", borderRadius: "10px", fontSize: "14px", fontWeight: 600, color: value === opt.value ? "#1A9682" : "#0F172A", backgroundColor: value === opt.value ? "#F0FDFA" : "transparent", cursor: "pointer", transition: "all 0.2s", marginBottom: "2px" }} onMouseEnter={(e) => { if(value !== opt.value) e.currentTarget.style.backgroundColor = "#F8FAFC" }} onMouseLeave={(e) => { if(value !== opt.value) e.currentTarget.style.backgroundColor = "transparent" }}>
-              {opt.label}
+        <div style={{ position: "absolute", top: "calc(100% + 8px)", left: 0, width: "100%", backgroundColor: "#FFF", borderRadius: "16px", border: "1px solid #E2E8F0", boxShadow: "0 10px 30px rgba(0,0,0,0.1)", zIndex: 1000, maxHeight: "300px", overflowY: "auto", padding: "8px", ...dropdownStyle }}>
+          {searchable && (
+            <div style={{ padding: "0 8px 8px 8px", position: "sticky", top: 0, backgroundColor: "#FFF", zIndex: 10 }}>
+              <input
+                type="text"
+                autoFocus
+                placeholder="Пошук..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #CBD5E1", fontSize: "14px", outline: "none", boxSizing: "border-box" }}
+              />
+            </div>
+          )}
+          {filteredOptions.length === 0 && <div style={{ padding: "12px", textAlign: "center", color: "#94A3B8", fontSize: "13px" }}>Немає варіантів</div>}
+          {filteredOptions.map((opt: any) => (
+            <div key={opt.value} onClick={() => { onChange(opt.value); setIsOpen(false); setSearchTerm(""); }} style={{ padding: "10px 16px", borderRadius: "10px", fontSize: "14px", fontWeight: 600, color: value === opt.value ? "#1A9682" : "#0F172A", backgroundColor: value === opt.value ? "#F0FDFA" : "transparent", cursor: "pointer", transition: "all 0.2s", marginBottom: "2px", display: "flex", alignItems: "center", gap: "10px" }} onMouseEnter={(e) => { if(value !== opt.value) e.currentTarget.style.backgroundColor = "#F8FAFC" }} onMouseLeave={(e) => { if(value !== opt.value) e.currentTarget.style.backgroundColor = "transparent" }}>
+              {opt.image && <img src={opt.image} style={{ width: "32px", height: "32px", borderRadius: "6px", objectFit: "cover", flexShrink: 0 }} alt="" />}
+              <span>{opt.label}</span>
             </div>
           ))}
         </div>
@@ -122,6 +155,19 @@ interface Expense { id: string; description: string; category: string; amount: n
 interface Employee { id: string; name: string; role: string; phone: string; email?: string; password?: string; user_id?: string; }
 interface Client { id: string; name: string; phone: string; }
 interface Supplier { id: string; name: string; contact: string; }
+
+// === ФІНАНСОВА ЛОГІКА ДЛЯ КОЖНОГО ПРОДАЖУ ===
+const getSaleProfit = (s: Sale) => {
+  if (s.status === 'Отримано') return s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
+  if (s.status === 'Відмова') return Math.max(0, Number(s.prepayment || 0) - 100);
+  return 0; // "В дорозі" = 0 доходу поки не заберуть
+};
+
+const getSaleTurnover = (s: Sale) => {
+  if (s.status === 'Отримано') return Number(s.total_price || 0);
+  if (s.status === 'Відмова') return Math.max(0, Number(s.prepayment || 0) - 100);
+  return 0; // "В дорозі" = 0 обороту поки не заберуть
+};
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("Головна");
@@ -471,7 +517,7 @@ export default function Dashboard() {
 
   const handleUpdateSaleStatus = async (sale: Sale, newStatus: string) => {
     if (newStatus === "Відмова") {
-      if (!confirm("Клієнт відмовився? Товар буде повернуто на склад, а передоплата залишиться у вас.")) return;
+      if (!confirm("Клієнт відмовився? Товар буде повернуто на склад, а з передоплати вирахується ~100 грн на доставку (залишок піде у прибуток).")) return;
       const selectedProd = products.find(p => p.id === sale.product_id);
       if (selectedProd) {
         let updatedSizes = { ...selectedProd.sizes };
@@ -825,6 +871,8 @@ export default function Dashboard() {
     if (filterMode === "date") return s.created_at.slice(0, 10) === selectedDate;
     return true;
   });
+
+  const successfulSales = filteredSales.filter(s => s.status !== 'Відмова');
   
   const filteredExpenses = visibleExpenses.filter(e => {
     if (!e.created_at) return true;
@@ -840,17 +888,12 @@ export default function Dashboard() {
   let totalGrossProfit = 0;
 
   filteredSales.forEach(s => {
-    if (s.status === "Отримано") {
-      totalTurnover += Number(s.total_price || 0);
-      totalGrossProfit += (s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price)));
-    } else if (s.status === "В дорозі" || s.status === "Відмова") {
-      totalTurnover += Number(s.prepayment || 0);
-      totalGrossProfit += Number(s.prepayment || 0);
-    }
+    totalTurnover += getSaleTurnover(s);
+    totalGrossProfit += getSaleProfit(s);
   });
 
   const netProfit = totalGrossProfit - totalExpenses;
-  const totalItemsSold = filteredSales.reduce((acc, curr) => acc + (Number(curr.quantity) || 0), 0);
+  const totalItemsSold = successfulSales.reduce((acc, curr) => acc + (Number(curr.quantity) || 0), 0);
   const totalInventoryRetail = products.reduce((acc, p) => acc + (p.price * (p.quantity || 0)), 0);
   const totalInventoryCost = products.reduce((acc, p) => acc + ((p.cost_price || 0) * (p.quantity || 0)), 0);
 
@@ -866,10 +909,7 @@ export default function Dashboard() {
       const sForDay = visibleSales.filter(s => s.created_at.startsWith(dateStr));
       const eForDay = visibleExpenses.filter(e => e.created_at.startsWith(dateStr));
       
-      const dayProfit = sForDay.reduce((acc, curr) => {
-        if (curr.status === "Отримано") return acc + (curr.profit !== undefined ? curr.profit : (Number(curr.total_price || 0) - Number(curr.cost_price || 0)));
-        return acc + Number(curr.prepayment || 0);
-      }, 0) - eForDay.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+      const dayProfit = sForDay.reduce((acc, curr) => acc + getSaleProfit(curr), 0) - eForDay.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
       
       pts.push({ label: dayLabel, date: d.getDate(), val: dayProfit > 0 ? dayProfit : 0 });
     }
@@ -1152,7 +1192,7 @@ export default function Dashboard() {
                   <div>
                     <p style={{ fontSize: "13px", fontWeight: "600", color: "#64748B", margin: 0 }}>{userRole === "owner" ? "Оборот (в касі)" : "Мій Оборот"}</p>
                     <h3 style={{ fontSize: "28px", fontWeight: "800", margin: "6px 0 4px 0", lineHeight: "1.2" }}><FormatMoney amount={totalTurnover} /></h3>
-                    <div style={{ color: "#3B82F6", fontSize: "12px", fontWeight: "600" }}>{filteredSales.length} продажів</div>
+                    <div style={{ color: "#3B82F6", fontSize: "12px", fontWeight: "600" }}>{successfulSales.length} продажів</div>
                   </div>
                   <div style={{ width: "48px", height: "48px", backgroundColor: "#EFF6FF", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", color: "#3B82F6" }}><TrendingUp size={24} /></div>
                 </div>
@@ -1249,8 +1289,8 @@ export default function Dashboard() {
                   <div className="table-responsive">
                     <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
                       <tbody>
-                        {filteredSales.length === 0 && <tr><td style={{ color: "#94A3B8" }}>Немає продажів</td></tr>}
-                        {filteredSales.slice(0, 5).map(s => (
+                        {successfulSales.length === 0 && <tr><td style={{ color: "#94A3B8" }}>Немає продажів</td></tr>}
+                        {successfulSales.slice(0, 5).map(s => (
                           <tr key={s.id} className="table-row">
                             <td className="table-cell" style={{ padding: "12px 0" }}>
                               <span style={{ fontWeight: 700, color: "#0F172A" }}>{s.product_name}</span> {s.selected_size ? <span style={{color: "#94A3B8"}}>({s.selected_size})</span> : ""}
@@ -1519,28 +1559,25 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredSales.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "#94A3B8", paddingTop: "20px" }}>Немає проданих товарів за цей період</td></tr>}
-                    {filteredSales.map(s => {
-                      const itemProfit = s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
-                      return (
-                        <tr key={s.id} className="table-row">
-                          <td className="table-cell" style={{ color: "#64748B", fontWeight: "600" }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
-                          <td className="table-cell" style={{ fontWeight: "700", color: "#0F172A" }}>{s.product_name} {s.selected_size ? <span style={{ color: "#94A3B8" }}>({s.selected_size})</span> : ""}</td>
-                          <td className="table-cell">
-                            <p style={{ fontWeight: "700", margin: "0 0 4px 0", color: "#0F172A" }}>{s.customer_name || "Роздрібний покупець"}</p>
-                            <span style={{ fontSize: "12px", color: "#64748B", fontWeight: "600", backgroundColor: "#F1F5F9", padding: "4px 8px", borderRadius: "6px" }}>
-                              {s.ttn ? `ТТН: ${s.ttn}` : "Оплата без ТТН"}
-                            </span>
-                          </td>
-                          <td className="table-cell" style={{ fontWeight: "700", color: "#0D9488" }}>{s.quantity} шт.</td>
-                          <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
-                          <td className="table-cell" style={{ fontWeight: "800", color: itemProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={itemProfit} showSign={true}/></td>
-                          <td className="table-cell no-print" style={{ textAlign: "right" }}>
-                            <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж"><Trash2 size={18} /></button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {successfulSales.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "#94A3B8", paddingTop: "20px" }}>Немає проданих товарів за цей період</td></tr>}
+                    {successfulSales.map(s => (
+                      <tr key={s.id} className="table-row">
+                        <td className="table-cell" style={{ color: "#64748B", fontWeight: "600" }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
+                        <td className="table-cell" style={{ fontWeight: "700", color: "#0F172A" }}>{s.product_name} {s.selected_size ? <span style={{ color: "#94A3B8" }}>({s.selected_size})</span> : ""}</td>
+                        <td className="table-cell">
+                          <p style={{ fontWeight: "700", margin: "0 0 4px 0", color: "#0F172A" }}>{s.customer_name || "Роздрібний покупець"}</p>
+                          <span style={{ fontSize: "12px", color: "#64748B", fontWeight: "600", backgroundColor: "#F1F5F9", padding: "4px 8px", borderRadius: "6px" }}>
+                            {s.ttn ? `ТТН: ${s.ttn}` : "Оплата без ТТН"}
+                          </span>
+                        </td>
+                        <td className="table-cell" style={{ fontWeight: "700", color: "#0D9488" }}>{s.quantity} шт.</td>
+                        <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
+                        <td className="table-cell" style={{ fontWeight: "800", color: getSaleProfit(s) >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={getSaleProfit(s)} showSign={true}/></td>
+                        <td className="table-cell no-print" style={{ textAlign: "right" }}>
+                          <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж"><Trash2 size={18} /></button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1579,8 +1616,8 @@ export default function Dashboard() {
                       const empSales = sales.filter(s => s.employee_name === emp.email || s.employee_name === emp.name);
                       const successfulEmpSales = empSales.filter(s => s.status !== 'Відмова');
                       
-                      const empTurnover = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? Number(s.total_price) : Number(s.prepayment)), 0);
-                      const empProfit = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? (s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price))) : Number(s.prepayment)), 0);
+                      const empTurnover = empSales.reduce((acc, s) => acc + getSaleTurnover(s), 0);
+                      const empProfit = empSales.reduce((acc, s) => acc + getSaleProfit(s), 0);
                       
                       const soldItemsMap: Record<string, number> = {};
                       successfulEmpSales.forEach(s => {
@@ -1644,7 +1681,7 @@ export default function Dashboard() {
                   <tbody>
                     {clients.map((cli) => {
                       const clientSales = sales.filter(s => s.customer_name === cli.name);
-                      const totalC = clientSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? Number(s.total_price) : Number(s.prepayment)), 0);
+                      const totalC = clientSales.reduce((acc, s) => acc + getSaleTurnover(s), 0);
                       
                       return (
                         <tr key={cli.id} className="table-row">
@@ -1716,7 +1753,7 @@ export default function Dashboard() {
               <div className="grid-2">
                 <div style={{ padding: "20px", backgroundColor: "#F8FAFC", borderRadius: "16px", border: "1px solid #F1F5F9" }}>
                   <p style={{ fontSize: "13px", color: "#64748B", marginBottom: "6px", fontWeight: "600" }}>Середній чек</p>
-                  <p style={{ fontSize: "28px", color: "#0F172A", fontWeight: "800", margin: 0 }}><FormatMoney amount={filteredSales.length > 0 ? (totalTurnover / filteredSales.length) : 0} /></p>
+                  <p style={{ fontSize: "28px", color: "#0F172A", fontWeight: "800", margin: 0 }}><FormatMoney amount={successfulSales.length > 0 ? (totalTurnover / successfulSales.length) : 0} /></p>
                 </div>
                 <div style={{ padding: "20px", backgroundColor: "#F8FAFC", borderRadius: "16px", border: "1px solid #F1F5F9" }}>
                   <p style={{ fontSize: "13px", color: "#64748B", marginBottom: "6px", fontWeight: "600" }}>Маржинальність</p>
@@ -1951,8 +1988,9 @@ export default function Dashboard() {
                     <CustomSelect 
                       value={saleForm.product_id}
                       onChange={(val: any) => handleSelectProductForSale(val)}
-                      options={products.map(p => ({ value: p.id, label: `${p.name} (В наявності: ${p.quantity})` }))}
+                      options={products.map(p => ({ value: p.id, label: `${p.name} (В наявності: ${p.quantity})`, image: p.image_url }))}
                       placeholder="Оберіть товар зі складу"
+                      searchable={true}
                       triggerStyle={{ fontSize: "15px", fontWeight: 700, color: "#0F172A", width: "100%", padding: 0 }}
                     />
                   </div>
@@ -2136,9 +2174,9 @@ export default function Dashboard() {
 
             {(() => {
               const clientSales = sales.filter(s => s.customer_name === selectedClientForDetails.name);
-              const totalTurnover = clientSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? Number(s.total_price) : Number(s.prepayment)), 0);
-              const totalProfit = clientSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? (s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price))) : Number(s.prepayment)), 0);
-              const totalItems = clientSales.reduce((acc, s) => acc + Number(s.quantity), 0);
+              const totalTurnover = clientSales.reduce((acc, s) => acc + getSaleTurnover(s), 0);
+              const totalProfit = clientSales.reduce((acc, s) => acc + getSaleProfit(s), 0);
+              const totalItems = clientSales.filter(s => s.status !== 'Відмова').reduce((acc, s) => acc + Number(s.quantity), 0);
 
               return (
                 <>
@@ -2164,7 +2202,7 @@ export default function Dashboard() {
                         <tr>
                           <th className="table-head-cell" style={{ textAlign: "left" }}>Дата</th>
                           <th className="table-head-cell" style={{ textAlign: "left" }}>Товар</th>
-                          <th className="table-head-cell" style={{ textAlign: "left" }}>К-сть</th>
+                          <th className="table-head-cell" style={{ textAlign: "center" }}>К-сть</th>
                           <th className="table-head-cell" style={{ textAlign: "right" }}>Сума</th>
                           <th className="table-head-cell" style={{ textAlign: "right" }}>Дохід</th>
                           <th className="table-head-cell" style={{ textAlign: "left" }}>Статус / ТТН</th>
@@ -2174,14 +2212,13 @@ export default function Dashboard() {
                         
                         {clientSales.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", color: "#94A3B8", padding: "20px" }}>Немає історії замовлень</td></tr>}
                         {clientSales.map(s => {
-                          const itemProfit = s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
                           return (
                             <tr key={s.id} className="table-row">
                               <td className="table-cell" style={{ color: "#64748B", fontWeight: 600 }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
                               <td className="table-cell" style={{ fontWeight: 700, color: "#0F172A" }}>{s.product_name} {s.selected_size ? `(${s.selected_size})` : ""}</td>
-                              <td className="table-cell" style={{ fontWeight: 700 }}>{s.quantity}</td>
+                              <td className="table-cell" style={{ fontWeight: 700, textAlign: "center" }}>{s.quantity}</td>
                               <td className="table-cell" style={{ fontWeight: 800, color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
-                              <td className="table-cell" style={{ fontWeight: 800, color: itemProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={itemProfit} /></td>
+                              <td className="table-cell" style={{ fontWeight: 800, color: getSaleProfit(s) >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={getSaleProfit(s)} /></td>
                               <td className="table-cell">
                                 <span style={{ fontSize: "11px", fontWeight: "700", padding: "4px 8px", borderRadius: "6px", backgroundColor: s.status === 'Отримано' ? '#ECFDF5' : s.status === 'Відмова' ? '#FEF2F2' : '#FFFBEB', color: s.status === 'Отримано' ? '#059669' : s.status === 'Відмова' ? '#DC2626' : '#D97706', display: "inline-block", marginBottom: "4px" }}>
                                   {s.status}
@@ -2231,8 +2268,8 @@ export default function Dashboard() {
             {(() => {
               const empSales = sales.filter(s => s.employee_name === selectedEmployeeForDetails.email || s.employee_name === selectedEmployeeForDetails.name);
               const successfulSales = empSales.filter(s => s.status !== 'Відмова');
-              const totalTurnover = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? Number(s.total_price) : Number(s.prepayment)), 0);
-              const totalProfit = empSales.reduce((acc, s) => acc + (s.status === 'Отримано' ? (s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price))) : Number(s.prepayment)), 0);
+              const totalTurnover = empSales.reduce((acc, s) => acc + getSaleTurnover(s), 0);
+              const totalProfit = empSales.reduce((acc, s) => acc + getSaleProfit(s), 0);
               const totalItems = successfulSales.reduce((acc, s) => acc + Number(s.quantity), 0);
 
               return (
@@ -2269,7 +2306,6 @@ export default function Dashboard() {
                       <tbody>
                         {empSales.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "#94A3B8", padding: "20px" }}>Немає історії продажів</td></tr>}
                         {empSales.map(s => {
-                          const itemProfit = s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
                           return (
                             <tr key={s.id} className="table-row">
                               <td className="table-cell" style={{ color: "#64748B", fontWeight: 600 }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
@@ -2277,7 +2313,7 @@ export default function Dashboard() {
                               <td className="table-cell" style={{ fontWeight: 600, color: "#475569" }}>{s.customer_name || "Роздріб"}</td>
                               <td className="table-cell" style={{ fontWeight: 700, textAlign: "center" }}>{s.quantity}</td>
                               <td className="table-cell" style={{ fontWeight: 800, color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
-                              <td className="table-cell" style={{ fontWeight: 800, color: itemProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={itemProfit} /></td>
+                              <td className="table-cell" style={{ fontWeight: 800, color: getSaleProfit(s) >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={getSaleProfit(s)} /></td>
                               <td className="table-cell">
                                 <span style={{ fontSize: "11px", fontWeight: "700", padding: "4px 8px", borderRadius: "6px", backgroundColor: s.status === 'Отримано' ? '#ECFDF5' : s.status === 'Відмова' ? '#FEF2F2' : '#FFFBEB', color: s.status === 'Отримано' ? '#059669' : s.status === 'Відмова' ? '#DC2626' : '#D97706', display: "inline-block" }}>
                                   {s.status}
