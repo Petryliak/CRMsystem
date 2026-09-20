@@ -159,14 +159,12 @@ interface Supplier { id: string; name: string; contact: string; }
 // === ФІНАНСОВА ЛОГІКА ДЛЯ КОЖНОГО ПРОДАЖУ ===
 const getSaleProfit = (s: Sale) => {
   if (s.status === 'Отримано') return s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
-  if (s.status === 'Відмова') return Math.max(0, Number(s.prepayment || 0) - 100);
-  return 0; // "В дорозі" = 0 доходу поки не заберуть
+  return 0; // "В дорозі" та "Відмова" = 0
 };
 
 const getSaleTurnover = (s: Sale) => {
   if (s.status === 'Отримано') return Number(s.total_price || 0);
-  if (s.status === 'Відмова') return Math.max(0, Number(s.prepayment || 0) - 100);
-  return 0; // "В дорозі" = 0 обороту поки не заберуть
+  return 0; // "В дорозі" та "Відмова" = 0
 };
 
 export default function Dashboard() {
@@ -517,7 +515,7 @@ export default function Dashboard() {
 
   const handleUpdateSaleStatus = async (sale: Sale, newStatus: string) => {
     if (newStatus === "Відмова") {
-      if (!confirm("Клієнт відмовився? Товар буде повернуто на склад, а з передоплати вирахується ~100 грн на доставку (залишок піде у прибуток).")) return;
+      if (!confirm("Клієнт відмовився? Товар буде повернуто на склад (сума передоплати не зараховується в прибуток).")) return;
       const selectedProd = products.find(p => p.id === sale.product_id);
       if (selectedProd) {
         let updatedSizes = { ...selectedProd.sizes };
@@ -1560,24 +1558,26 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {successfulSales.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "#94A3B8", paddingTop: "20px" }}>Немає проданих товарів за цей період</td></tr>}
-                    {successfulSales.map(s => (
-                      <tr key={s.id} className="table-row">
-                        <td className="table-cell" style={{ color: "#64748B", fontWeight: "600" }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
-                        <td className="table-cell" style={{ fontWeight: "700", color: "#0F172A" }}>{s.product_name} {s.selected_size ? <span style={{ color: "#94A3B8" }}>({s.selected_size})</span> : ""}</td>
-                        <td className="table-cell">
-                          <p style={{ fontWeight: "700", margin: "0 0 4px 0", color: "#0F172A" }}>{s.customer_name || "Роздрібний покупець"}</p>
-                          <span style={{ fontSize: "12px", color: "#64748B", fontWeight: "600", backgroundColor: "#F1F5F9", padding: "4px 8px", borderRadius: "6px" }}>
-                            {s.ttn ? `ТТН: ${s.ttn}` : "Оплата без ТТН"}
-                          </span>
-                        </td>
-                        <td className="table-cell" style={{ fontWeight: "700", color: "#0D9488" }}>{s.quantity} шт.</td>
-                        <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
-                        <td className="table-cell" style={{ fontWeight: "800", color: getSaleProfit(s) >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={getSaleProfit(s)} showSign={true}/></td>
-                        <td className="table-cell no-print" style={{ textAlign: "right" }}>
-                          <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж"><Trash2 size={18} /></button>
-                        </td>
-                      </tr>
-                    ))}
+                    {successfulSales.map(s => {
+                      return (
+                        <tr key={s.id} className="table-row">
+                          <td className="table-cell" style={{ color: "#64748B", fontWeight: "600" }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
+                          <td className="table-cell" style={{ fontWeight: "700", color: "#0F172A" }}>{s.product_name} {s.selected_size ? <span style={{ color: "#94A3B8" }}>({s.selected_size})</span> : ""}</td>
+                          <td className="table-cell">
+                            <p style={{ fontWeight: "700", margin: "0 0 4px 0", color: "#0F172A" }}>{s.customer_name || "Роздрібний покупець"}</p>
+                            <span style={{ fontSize: "12px", color: "#64748B", fontWeight: "600", backgroundColor: "#F1F5F9", padding: "4px 8px", borderRadius: "6px" }}>
+                              {s.ttn ? `ТТН: ${s.ttn}` : "Оплата без ТТН"}
+                            </span>
+                          </td>
+                          <td className="table-cell" style={{ fontWeight: "700", color: "#0D9488" }}>{s.quantity} шт.</td>
+                          <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
+                          <td className="table-cell" style={{ fontWeight: "800", color: getSaleProfit(s) >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={getSaleProfit(s)} showSign={true}/></td>
+                          <td className="table-cell no-print" style={{ textAlign: "right" }}>
+                            <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж"><Trash2 size={18} /></button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
