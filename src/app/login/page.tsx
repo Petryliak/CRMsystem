@@ -246,7 +246,6 @@ export default function Dashboard() {
   }, [userId]);
 
   const checkUserAndFetchData = async () => {
-    // 1. СПІВРОБІТНИК
     const empSession = localStorage.getItem("employee_session");
     if (empSession) {
       const emp = JSON.parse(empSession);
@@ -279,7 +278,11 @@ export default function Dashboard() {
 
     // 2. ВЛАСНИК
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { router.push("/login"); return; }
+    if (!session) { 
+      setLoading(false);
+      router.push("/login"); 
+      return; 
+    }
     
     const uEmail = session.user.email || "";
     const userEmailToCheck = uEmail.toLowerCase().trim();
@@ -1523,7 +1526,7 @@ export default function Dashboard() {
           {activeTab === "Звіти" && userRole === "owner" && (
             <div className="card">
               <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-                <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Підсумки: {filterMode === 'month' ? selectedMonth : selectedDate}</h3>
+                <h3 style={{ fontSize: "20px", fontWeight: "800", margin: "0 0 24px 0" }}>Підсумки: {filterMode === 'month' ? selectedMonth : selectedDate}</h3>
                 <button onClick={() => window.print()} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#0F172A", color: "#FFFFFF", border: "none", padding: "10px 16px", borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer" }}><Printer size={18} /><span>PDF Звіт</span></button>
               </div>
               
@@ -1559,6 +1562,7 @@ export default function Dashboard() {
                   <tbody>
                     {successfulSales.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "#94A3B8", paddingTop: "20px" }}>Немає проданих товарів за цей період</td></tr>}
                     {successfulSales.map(s => {
+                      const itemProfit = s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
                       return (
                         <tr key={s.id} className="table-row">
                           <td className="table-cell" style={{ color: "#64748B", fontWeight: "600" }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
@@ -1571,7 +1575,7 @@ export default function Dashboard() {
                           </td>
                           <td className="table-cell" style={{ fontWeight: "700", color: "#0D9488" }}>{s.quantity} шт.</td>
                           <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
-                          <td className="table-cell" style={{ fontWeight: "800", color: getSaleProfit(s) >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={getSaleProfit(s)} showSign={true}/></td>
+                          <td className="table-cell" style={{ fontWeight: "800", color: itemProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={itemProfit} showSign={true}/></td>
                           <td className="table-cell no-print" style={{ textAlign: "right" }}>
                             <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж"><Trash2 size={18} /></button>
                           </td>
@@ -2106,7 +2110,7 @@ export default function Dashboard() {
         <div className="modal-overlay-fixed">
           <div className="modal-box-fixed">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Внести витрату</h3>
+              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: "0 0 24px 0" }}>Внести витрату</h3>
               <button onClick={() => setIsExpenseModalOpen(false)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B" }}><X size={18} /></button>
             </div>
             <form onSubmit={handleSaveExpense} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -2123,7 +2127,7 @@ export default function Dashboard() {
         <div className="modal-overlay-fixed">
           <div className="modal-box-fixed">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Новий співробітник</h3>
+              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: "0 0 24px 0" }}>Новий співробітник</h3>
               <button onClick={() => setIsEmployeeModalOpen(false)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B" }}><X size={18} /></button>
             </div>
             <form onSubmit={handleSaveEmployee} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
