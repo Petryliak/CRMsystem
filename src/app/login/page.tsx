@@ -246,95 +246,124 @@ export default function Dashboard() {
   }, [userId]);
 
   const checkUserAndFetchData = async () => {
-    const empSession = localStorage.getItem("employee_session");
-    if (empSession) {
-      const emp = JSON.parse(empSession);
-      setUserId(emp.user_id);
-      setUserEmail(emp.email || emp.name);
-      setUserRole("employee");
-
-      const { data: ownerCrm } = await supabase.from("crm_users").select("*").eq("id", emp.user_id).single();
-      if (ownerCrm && ownerCrm.email !== SUPER_ADMIN_EMAIL) {
-        const ownerPlan = ownerCrm.plan || "Пробний період";
-        const isFreePlan = ownerPlan === "Малий бізнес" || ownerPlan === "Безліміт (Супер-Адмін)";
-        const createdAt = new Date(ownerCrm.created_at || new Date());
-        let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
-        if (daysPassed < 0) daysPassed = 0; 
-        
-        const isExpired = daysPassed >= 30 && !isFreePlan;
-        const isBlocked = ownerPlan === "Заблоковано";
-
-        if (isExpired || isBlocked) {
-          setIsTrialExpired(true);
-          setUserPlan(ownerPlan);
+    try {
+      // 1. СПІВРОБІТНИК
+      const empSession = localStorage.getItem("employee_session");
+      if (empSession) {
+        let emp;
+        try {
+          emp = JSON.parse(empSession);
+        } catch (e) {
+          localStorage.removeItem("employee_session");
           setLoading(false);
-          return; 
+          router.push("/login");
+          return;
+        }
+
+        setUserId(emp.user_id);
+        setUserEmail(emp.email || emp.name);
+        setUserRole("employee");
+
+        const { data: ownerCrm, error: ownerError } = await supabase.from("crm_users").select("*").eq("id", emp.user_id).single();
+        if (ownerError && ownerError.code !== 'PGRST116') {
+           throw ownerError;
+        }
+
+        if (ownerCrm && ownerCrm.email !== SUPER_ADMIN_EMAIL) {
+          const ownerPlan = ownerCrm.plan || "Пробний період";
+          const isFreePlan = ownerPlan === "Малий бізнес" || ownerPlan === "Безліміт (Супер-Адмін)";
+          const createdAt = new Date(ownerCrm.created_at || new Date());
+          let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
+          if (daysPassed < 0) daysPassed = 0; 
+          
+          const isExpired = daysPassed >= 30 && !isFreePlan;
+          const isBlocked = ownerPlan === "Заблоковано";
+
+          if (isExpired || isBlocked) {
+            setIsTrialExpired(true);
+            setUserPlan(ownerPlan);
+            setLoading(false);
+            return; 
+          }
+        }
+        await loadDatabaseData(emp.user_id);
+        setLoading(false);
+        return;
+      }
+
+      // 2. ВЛАСНИК
+      const { data: authData, error: authError } = await supabase.auth.getSession();
+      if (authError) throw authError;
+
+      if (!authData.session) { 
+        setLoading(false);
+        router.push("/login"); 
+        return; 
+      }
+      
+      const session = authData.session;
+      const uEmail = session.user.email || "";
+      const userEmailToCheck = uEmail.toLowerCase().trim();
+      setUserEmail(uEmail); 
+      setUserId(session.user.id);
+      setUserRole("owner");
+
+      let { data: crmUser, error: crmError } = await supabase.from("crm_users").select("*").eq("email", userEmailToCheck).single();
+      
+      if (crmError && crmError.code !== 'PGRST116') {
+        throw crmError;
+      }
+      
+      if (!crmUser) {
+        const newUser = { id: session.user.id, email: userEmailToCheck, plan: "Пробний період" };
+        const { error: insertError } = await supabase.from("crm_users").insert([newUser]);
+        if (insertError) throw insertError;
+        crmUser = newUser;
+      }
+
+      if (crmUser) {
+        if (userEmailToCheck === SUPER_ADMIN_EMAIL) {
+          setUserPlan("Безліміт (Супер-Адмін)");
+          setPaymentDateStr("Необмежено");
+          setDaysToPay(999);
+        } else {
+          const currentPlan = crmUser.plan || "Пробний період";
+          setUserPlan(currentPlan);
+          const isFreePlan = currentPlan === "Малий бізнес" || currentPlan === "Безліміт (Супер-Адмін)";
+          
+          const createdAt = new Date(crmUser.created_at || new Date());
+          let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
+          if (daysPassed < 0) daysPassed = 0; 
+          
+          const nextPayDate = new Date(createdAt);
+          nextPayDate.setDate(nextPayDate.getDate() + 30);
+          setPaymentDateStr(isFreePlan ? "Необмежено" : nextPayDate.toLocaleDateString('uk-UA'));
+          setDaysToPay(isFreePlan ? 999 : Math.max(0, 30 - daysPassed));
+
+          const isExpired = daysPassed >= 30 && !isFreePlan;
+          const isBlocked = currentPlan === "Заблоковано";
+
+          if (isExpired || isBlocked) {
+            setIsTrialExpired(true);
+            setLoading(false);
+            return; 
+          }
         }
       }
-      await loadDatabaseData(emp.user_id);
-      setLoading(false);
-      return;
-    }
 
-    // 2. ВЛАСНИК
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { 
-      setLoading(false);
-      router.push("/login"); 
-      return; 
-    }
-    
-    const uEmail = session.user.email || "";
-    const userEmailToCheck = uEmail.toLowerCase().trim();
-    setUserEmail(uEmail); 
-    setUserId(session.user.id);
-    setUserRole("owner");
-
-    let { data: crmUser } = await supabase.from("crm_users").select("*").eq("email", userEmailToCheck).single();
-    
-    if (!crmUser) {
-      const newUser = { id: session.user.id, email: userEmailToCheck, plan: "Пробний період" };
-      await supabase.from("crm_users").insert([newUser]);
-      crmUser = newUser;
-    }
-
-    if (crmUser) {
-      if (userEmailToCheck === SUPER_ADMIN_EMAIL) {
-        setUserPlan("Безліміт (Супер-Адмін)");
-        setPaymentDateStr("Необмежено");
-        setDaysToPay(999);
-      } else {
-        const currentPlan = crmUser.plan || "Пробний період";
-        setUserPlan(currentPlan);
-        const isFreePlan = currentPlan === "Малий бізнес" || currentPlan === "Безліміт (Супер-Адмін)";
-        
-        const createdAt = new Date(crmUser.created_at || new Date());
-        let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
-        if (daysPassed < 0) daysPassed = 0; 
-        
-        const nextPayDate = new Date(createdAt);
-        nextPayDate.setDate(nextPayDate.getDate() + 30);
-        setPaymentDateStr(isFreePlan ? "Необмежено" : nextPayDate.toLocaleDateString('uk-UA'));
-        setDaysToPay(isFreePlan ? 999 : Math.max(0, 30 - daysPassed));
-
-        const isExpired = daysPassed >= 30 && !isFreePlan;
-        const isBlocked = currentPlan === "Заблоковано";
-
-        if (isExpired || isBlocked) {
-          setIsTrialExpired(true);
-          setLoading(false);
-          return; 
-        }
+      if (uEmail === SUPER_ADMIN_EMAIL) {
+        const { data: allUsers } = await supabase.from("crm_users").select("*").order("created_at", { ascending: false });
+        if (allUsers) setCrmUsersList(allUsers);
       }
-    }
 
-    if (uEmail === SUPER_ADMIN_EMAIL) {
-      const { data: allUsers } = await supabase.from("crm_users").select("*").order("created_at", { ascending: false });
-      if (allUsers) setCrmUsersList(allUsers);
-    }
+      await loadDatabaseData(session.user.id); 
+      setLoading(false);
 
-    await loadDatabaseData(session.user.id); 
-    setLoading(false);
+    } catch (error: any) {
+      console.error("Critical error during data fetch:", error);
+      setLoading(false);
+      router.push("/login");
+    }
   };
 
   const loadDatabaseData = async (uid: string) => {
@@ -607,7 +636,7 @@ export default function Dashboard() {
     }
   };
 
-  const handleLogout = async () => { localStorage.removeItem("employee_session"); await supabase.auth.signOut(); router.push("/login"); };
+  const handleLogout = async () => { localStorage.clear(); try { await supabase.auth.signOut(); } catch(e) {} window.location.href = "/login"; };
 
   const handleSendReceiptToTelegram = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1526,7 +1555,7 @@ export default function Dashboard() {
           {activeTab === "Звіти" && userRole === "owner" && (
             <div className="card">
               <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-                <h3 style={{ fontSize: "20px", fontWeight: "800", margin: "0 0 24px 0" }}>Підсумки: {filterMode === 'month' ? selectedMonth : selectedDate}</h3>
+                <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Підсумки: {filterMode === 'month' ? selectedMonth : selectedDate}</h3>
                 <button onClick={() => window.print()} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#0F172A", color: "#FFFFFF", border: "none", padding: "10px 16px", borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer" }}><Printer size={18} /><span>PDF Звіт</span></button>
               </div>
               
@@ -2110,7 +2139,7 @@ export default function Dashboard() {
         <div className="modal-overlay-fixed">
           <div className="modal-box-fixed">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: "0 0 24px 0" }}>Внести витрату</h3>
+              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Внести витрату</h3>
               <button onClick={() => setIsExpenseModalOpen(false)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B" }}><X size={18} /></button>
             </div>
             <form onSubmit={handleSaveExpense} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -2127,7 +2156,7 @@ export default function Dashboard() {
         <div className="modal-overlay-fixed">
           <div className="modal-box-fixed">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: "0 0 24px 0" }}>Новий співробітник</h3>
+              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Новий співробітник</h3>
               <button onClick={() => setIsEmployeeModalOpen(false)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B" }}><X size={18} /></button>
             </div>
             <form onSubmit={handleSaveEmployee} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
