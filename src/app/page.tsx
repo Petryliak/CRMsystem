@@ -238,100 +238,132 @@ export default function Dashboard() {
     if (!userId) return;
     const channel = supabase.channel('realtime_updates')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sales', filter: `user_id=eq.${userId}` }, (payload) => { setSales(prev => prev.find(s => s.id === payload.new.id) ? prev : [payload.new as Sale, ...prev]); })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sales', filter: `user_id=eq.${userId}` }, (payload) => { setSales(prev => prev.map(s => s.id === payload.new.id ? payload.new as Sale : s)); })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sales', filter: `user_id=eq.${userId}` }, (payload) => { setSales(prev => prev.map(s => s.id === payload.new.id ? { ...s, ...payload.new } as Sale : s)); })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products', filter: `user_id=eq.${userId}` }, (payload) => { setProducts(prev => prev.find(p => p.id === payload.new.id) ? prev : [payload.new as Product, ...prev]); })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products', filter: `user_id=eq.${userId}` }, (payload) => { setProducts(prev => prev.map(p => p.id === payload.new.id ? payload.new as Product : p)); })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products', filter: `user_id=eq.${userId}` }, (payload) => { setProducts(prev => prev.map(p => p.id === payload.new.id ? { ...p, ...payload.new } as Product : p)); })
       .subscribe();
     return () => { supabase.removeChannel(channel); }
   }, [userId]);
 
   const checkUserAndFetchData = async () => {
-    // 1. СПІВРОБІТНИК
-    const empSession = localStorage.getItem("employee_session");
-    if (empSession) {
-      const emp = JSON.parse(empSession);
-      setUserId(emp.user_id);
-      setUserEmail(emp.email || emp.name);
-      setUserRole("employee");
-
-      const { data: ownerCrm } = await supabase.from("crm_users").select("*").eq("id", emp.user_id).single();
-      if (ownerCrm && ownerCrm.email !== SUPER_ADMIN_EMAIL) {
-        const ownerPlan = ownerCrm.plan || "Пробний період";
-        const isFreePlan = ownerPlan === "Малий бізнес" || ownerPlan === "Безліміт (Супер-Адмін)";
-        const createdAt = new Date(ownerCrm.created_at || new Date());
-        let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
-        if (daysPassed < 0) daysPassed = 0; 
-        
-        const isExpired = daysPassed >= 30 && !isFreePlan;
-        const isBlocked = ownerPlan === "Заблоковано";
-
-        if (isExpired || isBlocked) {
-          setIsTrialExpired(true);
-          setUserPlan(ownerPlan);
+    try {
+      // 1. СПІВРОБІТНИК
+      const empSession = localStorage.getItem("employee_session");
+      if (empSession) {
+        let emp;
+        try {
+          emp = JSON.parse(empSession);
+        } catch (e) {
+          localStorage.removeItem("employee_session");
           setLoading(false);
-          return; 
+          router.push("/login");
+          return;
+        }
+
+        setUserId(emp.user_id);
+        setUserEmail(emp.email || emp.name);
+        setUserRole("employee");
+
+        const { data: ownerCrm, error: ownerError } = await supabase.from("crm_users").select("*").eq("id", emp.user_id).single();
+        if (ownerError && ownerError.code !== 'PGRST116') {
+           throw ownerError;
+        }
+
+        if (ownerCrm && ownerCrm.email !== SUPER_ADMIN_EMAIL) {
+          const ownerPlan = ownerCrm.plan || "Пробний період";
+          const isFreePlan = ownerPlan === "Малий бізнес" || ownerPlan === "Безліміт (Супер-Адмін)";
+          const createdAt = new Date(ownerCrm.created_at || new Date());
+          let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
+          if (daysPassed < 0) daysPassed = 0; 
+          
+          const isExpired = daysPassed >= 30 && !isFreePlan;
+          const isBlocked = ownerPlan === "Заблоковано";
+
+          if (isExpired || isBlocked) {
+            setIsTrialExpired(true);
+            setUserPlan(ownerPlan);
+            setLoading(false);
+            return; 
+          }
+        }
+        await loadDatabaseData(emp.user_id);
+        setLoading(false);
+        return;
+      }
+
+      // 2. ВЛАСНИК
+      const { data: authData, error: authError } = await supabase.auth.getSession();
+      if (authError) throw authError;
+
+      if (!authData.session) { 
+        setLoading(false);
+        router.push("/login"); 
+        return; 
+      }
+      
+      const session = authData.session;
+      const uEmail = session.user.email || "";
+      const userEmailToCheck = uEmail.toLowerCase().trim();
+      setUserEmail(uEmail); 
+      setUserId(session.user.id);
+      setUserRole("owner");
+
+      let { data: crmUser, error: crmError } = await supabase.from("crm_users").select("*").eq("email", userEmailToCheck).single();
+      
+      if (crmError && crmError.code !== 'PGRST116') {
+        throw crmError;
+      }
+      
+      if (!crmUser) {
+        const newUser = { id: session.user.id, email: userEmailToCheck, plan: "Пробний період" };
+        const { error: insertError } = await supabase.from("crm_users").insert([newUser]);
+        if (insertError) throw insertError;
+        crmUser = newUser;
+      }
+
+      if (crmUser) {
+        if (userEmailToCheck === SUPER_ADMIN_EMAIL) {
+          setUserPlan("Безліміт (Супер-Адмін)");
+          setPaymentDateStr("Необмежено");
+          setDaysToPay(999);
+        } else {
+          const currentPlan = crmUser.plan || "Пробний період";
+          setUserPlan(currentPlan);
+          const isFreePlan = currentPlan === "Малий бізнес" || currentPlan === "Безліміт (Супер-Адмін)";
+          
+          const createdAt = new Date(crmUser.created_at || new Date());
+          let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
+          if (daysPassed < 0) daysPassed = 0; 
+          
+          const nextPayDate = new Date(createdAt);
+          nextPayDate.setDate(nextPayDate.getDate() + 30);
+          setPaymentDateStr(isFreePlan ? "Необмежено" : nextPayDate.toLocaleDateString('uk-UA'));
+          setDaysToPay(isFreePlan ? 999 : Math.max(0, 30 - daysPassed));
+
+          const isExpired = daysPassed >= 30 && !isFreePlan;
+          const isBlocked = currentPlan === "Заблоковано";
+
+          if (isExpired || isBlocked) {
+            setIsTrialExpired(true);
+            setLoading(false);
+            return; 
+          }
         }
       }
-      await loadDatabaseData(emp.user_id);
+
+      if (uEmail === SUPER_ADMIN_EMAIL) {
+        const { data: allUsers } = await supabase.from("crm_users").select("*").order("created_at", { ascending: false });
+        if (allUsers) setCrmUsersList(allUsers);
+      }
+
+      await loadDatabaseData(session.user.id); 
       setLoading(false);
-      return;
+
+    } catch (error: any) {
+      console.error("Critical error during data fetch:", error);
+      setLoading(false);
+      router.push("/login");
     }
-
-    // 2. ВЛАСНИК
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { router.push("/login"); return; }
-    
-    const uEmail = session.user.email || "";
-    const userEmailToCheck = uEmail.toLowerCase().trim();
-    setUserEmail(uEmail); 
-    setUserId(session.user.id);
-    setUserRole("owner");
-
-    let { data: crmUser } = await supabase.from("crm_users").select("*").eq("email", userEmailToCheck).single();
-    
-    if (!crmUser) {
-      const newUser = { id: session.user.id, email: userEmailToCheck, plan: "Пробний період" };
-      await supabase.from("crm_users").insert([newUser]);
-      crmUser = newUser;
-    }
-
-    if (crmUser) {
-      if (userEmailToCheck === SUPER_ADMIN_EMAIL) {
-        setUserPlan("Безліміт (Супер-Адмін)");
-        setPaymentDateStr("Необмежено");
-        setDaysToPay(999);
-      } else {
-        const currentPlan = crmUser.plan || "Пробний період";
-        setUserPlan(currentPlan);
-        const isFreePlan = currentPlan === "Малий бізнес" || currentPlan === "Безліміт (Супер-Адмін)";
-        
-        const createdAt = new Date(crmUser.created_at || new Date());
-        let daysPassed = Math.floor((new Date().getTime() - createdAt.getTime()) / (1000 * 3600 * 24));
-        if (daysPassed < 0) daysPassed = 0; 
-        
-        const nextPayDate = new Date(createdAt);
-        nextPayDate.setDate(nextPayDate.getDate() + 30);
-        setPaymentDateStr(isFreePlan ? "Необмежено" : nextPayDate.toLocaleDateString('uk-UA'));
-        setDaysToPay(isFreePlan ? 999 : Math.max(0, 30 - daysPassed));
-
-        const isExpired = daysPassed >= 30 && !isFreePlan;
-        const isBlocked = currentPlan === "Заблоковано";
-
-        if (isExpired || isBlocked) {
-          setIsTrialExpired(true);
-          setLoading(false);
-          return; 
-        }
-      }
-    }
-
-    if (uEmail === SUPER_ADMIN_EMAIL) {
-      const { data: allUsers } = await supabase.from("crm_users").select("*").order("created_at", { ascending: false });
-      if (allUsers) setCrmUsersList(allUsers);
-    }
-
-    await loadDatabaseData(session.user.id); 
-    setLoading(false);
   };
 
   const loadDatabaseData = async (uid: string) => {
@@ -407,7 +439,7 @@ export default function Dashboard() {
     if (editingProductId) {
       const { data, error } = await supabase.from("products").update(prodData).eq("id", editingProductId).select();
       if (error) { alert("Помилка бази даних: " + error.message); return; }
-      if (data) setProducts(prev => prev.map(p => p.id === editingProductId ? data[0] as Product : p));
+      if (data) setProducts(prev => prev.map(p => p.id === editingProductId ? { ...data[0], ...prodData } as Product : p));
     } else {
       const newProduct = { user_id: userId, ...prodData };
       const { data, error } = await supabase.from("products").insert([newProduct]).select();
@@ -496,7 +528,7 @@ export default function Dashboard() {
       customer_name: finalCustomerName,
       status: isCod ? "В дорозі" : "Отримано",
       prepayment: isCod ? (Number(saleForm.prepayment) || 0) : 0,
-      ttn: isCod ? (saleForm.ttn || "") : "",
+      ttn: saleForm.ttn || "",
       employee_name: currentEmployeeName
     };
 
@@ -604,7 +636,7 @@ export default function Dashboard() {
     }
   };
 
-  const handleLogout = async () => { localStorage.removeItem("employee_session"); await supabase.auth.signOut(); router.push("/login"); };
+  const handleLogout = async () => { localStorage.clear(); try { await supabase.auth.signOut(); } catch(e) {} window.location.href = "/login"; };
 
   const handleSendReceiptToTelegram = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1559,6 +1591,7 @@ export default function Dashboard() {
                   <tbody>
                     {successfulSales.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "#94A3B8", paddingTop: "20px" }}>Немає проданих товарів за цей період</td></tr>}
                     {successfulSales.map(s => {
+                      const itemProfit = s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
                       return (
                         <tr key={s.id} className="table-row">
                           <td className="table-cell" style={{ color: "#64748B", fontWeight: "600" }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
@@ -1571,7 +1604,7 @@ export default function Dashboard() {
                           </td>
                           <td className="table-cell" style={{ fontWeight: "700", color: "#0D9488" }}>{s.quantity} шт.</td>
                           <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
-                          <td className="table-cell" style={{ fontWeight: "800", color: getSaleProfit(s) >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={getSaleProfit(s)} showSign={true}/></td>
+                          <td className="table-cell" style={{ fontWeight: "800", color: itemProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={itemProfit} showSign={true}/></td>
                           <td className="table-cell no-print" style={{ textAlign: "right" }}>
                             <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж"><Trash2 size={18} /></button>
                           </td>
@@ -2049,7 +2082,7 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {saleForm.payment_type === "cod" && (
+                {saleForm.payment_type === "cod" ? (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                     <div style={{ border: "1px solid #1A9682", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#F2FBF9" }}>
                       <div style={{ flex: 1 }}>
@@ -2062,6 +2095,13 @@ export default function Dashboard() {
                         <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Номер ТТН</label>
                         <input required type="text" placeholder="2045..." value={saleForm.ttn} onChange={e => setSaleForm({...saleForm, ttn: e.target.value})} style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: "16px", fontWeight: 700, color: "#0F172A", padding: 0 }} />
                       </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Номер ТТН (необов'язково)</label>
+                      <input type="text" placeholder="2045..." value={saleForm.ttn} onChange={e => setSaleForm({...saleForm, ttn: e.target.value})} style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: "16px", fontWeight: 700, color: "#0F172A", padding: 0 }} />
                     </div>
                   </div>
                 )}
