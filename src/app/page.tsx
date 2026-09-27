@@ -1053,9 +1053,19 @@ export default function Dashboard() {
       <aside className={`sidebar hide-on-print ${isMobileMenuOpen ? 'open' : ''}`}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 12px", marginBottom: "20px" }}>
-            <div style={{ width: "36px", height: "36px", background: "linear-gradient(135deg, #0D9488 0%, #0F766E 100%)", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 5px rgba(0,0,0,0.15)" }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M13 10L10 14h4l-3 4"></path></svg>
+            
+            {/* ========================================== */}
+            {/* ТУТ МІНЯЄТЬСЯ ЛОГОТИП (НЕОНОВИЙ КУБ)       */}
+            {/* ========================================== */}
+            <div style={{ width: "36px", height: "36px", background: "linear-gradient(135deg, #10B981 0%, #047857 100%)", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 12px rgba(16,185,129,0.3)", border: "1px solid rgba(255,255,255,0.2)" }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
+              </svg>
             </div>
+            {/* ========================================== */}
+
             <div>
               <h1 style={{ fontWeight: "800", fontSize: "16px", lineHeight: "1.2" }}>Price Drop</h1>
               <p style={{ fontSize: "12px", color: "#64748B", fontWeight: "500" }}>{businessName}</p>
