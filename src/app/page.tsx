@@ -315,7 +315,14 @@ export default function Dashboard() {
       }
       
       if (!crmUser) {
-        const newUser = { id: session.user.id, email: userEmailToCheck, plan: "Пробний період" };
+        // ЗБЕРІГАЄМО РЕФЕРАЛКУ В БАЗУ ПРИ СТВОРЕННІ НОВОГО КОРИСТУВАЧА
+        const savedRef = localStorage.getItem('referral_code');
+        const newUser = { 
+            id: session.user.id, 
+            email: userEmailToCheck, 
+            plan: "Пробний період",
+            referral: savedRef || null 
+        };
         const { error: insertError } = await supabase.from("crm_users").insert([newUser]);
         if (insertError) throw insertError;
         crmUser = newUser;
@@ -1134,10 +1141,11 @@ export default function Dashboard() {
               </div>
 
               <div className="table-responsive">
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", minWidth: "800px" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", minWidth: "900px" }}>
                   <thead>
                     <tr>
                       <th className="table-head-cell" style={{ textAlign: "left" }}>Email клієнта</th>
+                      <th className="table-head-cell" style={{ textAlign: "left" }}>Джерело</th>
                       <th className="table-head-cell" style={{ textAlign: "left" }}>Тариф</th>
                       <th className="table-head-cell" style={{ textAlign: "center" }}>Статус / Дні</th>
                       <th className="table-head-cell" style={{ textAlign: "center" }}>Дії (Керування)</th>
@@ -1157,6 +1165,13 @@ export default function Dashboard() {
                             {u.email}
                             <br/>
                             <span style={{fontSize: "11px", color: "#64748B", fontWeight: 500}}>Початок: {new Date(u.created_at).toLocaleDateString('uk-UA')}</span>
+                          </td>
+                          <td className="table-cell" style={{ fontWeight: "700", color: "#8B5CF6", fontSize: "13px" }}>
+                            {u.referral ? (
+                              <span style={{ backgroundColor: "#F5F3FF", padding: "4px 8px", borderRadius: "6px" }}>{u.referral}</span>
+                            ) : (
+                               <span style={{ color: "#CBD5E1" }}>—</span>
+                            )}
                           </td>
                           <td className="table-cell">
                             <select 
@@ -2156,7 +2171,7 @@ export default function Dashboard() {
         <div className="modal-overlay-fixed">
           <div className="modal-box-fixed">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Новий співробітник</h3>
+              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: "0 0 24px 0" }}>Новий співробітник</h3>
               <button onClick={() => setIsEmployeeModalOpen(false)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B" }}><X size={18} /></button>
             </div>
             <form onSubmit={handleSaveEmployee} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>

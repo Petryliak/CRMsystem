@@ -19,6 +19,25 @@ export default function LoginPage() {
   const router = useRouter();
 
   useEffect(() => {
+    // 1. Ловимо реферальний код з посилання (наприклад: ?ref=tiktok)
+    const urlParams = new URLSearchParams(window.location.search);
+    const refFromUrl = urlParams.get('ref');
+    
+    // 2. Беремо код, якщо він вже був збережений раніше
+    const savedRef = refFromUrl || localStorage.getItem('referral_code');
+
+    // 3. Жорстко чистимо пам'ять браузера від багів Телеграму (білий екран)
+    localStorage.clear();
+    
+    // 4. Повертаємо реферальний код назад у чисту пам'ять
+    if (savedRef) {
+      localStorage.setItem('referral_code', savedRef);
+    }
+    
+    // 5. Виходимо з усіх "завислих" сесій
+    supabase.auth.signOut().catch(() => {});
+
+    // Відстеження зміни пароля
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "PASSWORD_RECOVERY") {
         setStep("update_password");
@@ -69,10 +88,14 @@ export default function LoginPage() {
         }
         
         if (data.user) {
+          // Дістаємо збережений код арбітражника з пам'яті
+          const savedRef = localStorage.getItem('referral_code');
+          
           await supabase.from("crm_users").upsert([{
             id: data.user.id,
             email: checkEmail,
-            plan: selectedPlan
+            plan: selectedPlan,
+            referral: savedRef || null // Зберігаємо реферала в базу
           }]);
         }
         
