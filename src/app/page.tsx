@@ -11,14 +11,11 @@ import {
   Hash, Coins, User, Check, ArrowRight, ChevronLeft, ChevronRight, FileText, Shield, Send, UploadCloud, Copy, ShieldCheck, Mail, Search, Headset, Phone, Edit
 } from "lucide-react";
 
-// !!! ТВОЯ ПОШТА СУПЕР-АДМІНА !!!
 const SUPER_ADMIN_EMAIL = "davidpetrilak4@gmail.com"; 
 
-// !!! ДАНІ ДЛЯ TELEGRAM БОТА !!!
 const TELEGRAM_BOT_TOKEN = "8786054702:AAG837HCBYkgW2E_UqgJ3YEiEYaW9paNFfA"; 
 const TELEGRAM_CHAT_ID = "1374528287"; 
 
-// Початкові розміри для взуття (від 32 до 48)
 const initialShoeSizes = Array.from({length: 17}, (_, i) => String(32 + i)).reduce((acc, sz) => ({...acc, [sz]: ""}), {});
 
 const CustomSelect = ({ value, onChange, options, placeholder, triggerStyle, dropdownStyle, triggerClassName, wrapperClassName, searchable = false }: any) => {
@@ -156,15 +153,14 @@ interface Employee { id: string; name: string; role: string; phone: string; emai
 interface Client { id: string; name: string; phone: string; }
 interface Supplier { id: string; name: string; contact: string; }
 
-// === ФІНАНСОВА ЛОГІКА ДЛЯ КОЖНОГО ПРОДАЖУ ===
 const getSaleProfit = (s: Sale) => {
   if (s.status === 'Отримано') return s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
-  return 0; // "В дорозі" та "Відмова" = 0
+  return 0; 
 };
 
 const getSaleTurnover = (s: Sale) => {
   if (s.status === 'Отримано') return Number(s.total_price || 0);
-  return 0; // "В дорозі" та "Відмова" = 0
+  return 0; 
 };
 
 export default function Dashboard() {
@@ -207,10 +203,11 @@ export default function Dashboard() {
   const [selectedEmployeeForDetails, setSelectedEmployeeForDetails] = useState<Employee | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
-  // Нові стейти для складу
   const [productSearch, setProductSearch] = useState("");
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  
+  const [selectedSales, setSelectedSales] = useState<string[]>([]); 
 
   const [productForm, setProductForm] = useState({ name: "", category: "", price: "", costPrice: "", type: "clothing" as "clothing" | "simple" | "shoes", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" } as Record<string, any>, shoeSizes: initialShoeSizes as Record<string, any> });
   const [saleForm, setSaleForm] = useState({ product_id: "", selected_size: "", quantity: "1", total_price: "", customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
@@ -247,7 +244,6 @@ export default function Dashboard() {
 
   const checkUserAndFetchData = async () => {
     try {
-      // 1. СПІВРОБІТНИК
       const empSession = localStorage.getItem("employee_session");
       if (empSession) {
         let emp;
@@ -291,7 +287,6 @@ export default function Dashboard() {
         return;
       }
 
-      // 2. ВЛАСНИК
       const { data: authData, error: authError } = await supabase.auth.getSession();
       if (authError) throw authError;
 
@@ -315,7 +310,6 @@ export default function Dashboard() {
       }
       
       if (!crmUser) {
-        // ЗБЕРІГАЄМО РЕФЕРАЛКУ В БАЗУ ПРИ СТВОРЕННІ НОВОГО КОРИСТУВАЧА
         const savedRef = localStorage.getItem('referral_code');
         const newUser = { 
             id: session.user.id, 
@@ -392,7 +386,6 @@ export default function Dashboard() {
 
   const handleDeleteProduct = async (id: string) => { if (!confirm("Видалити товар?")) return; await supabase.from("products").delete().eq("id", id); setProducts(products.filter(p => p.id !== id)); };
   
-  // ФУНКЦІЯ РЕДАГУВАННЯ ТОВАРУ
   const handleEditProduct = (prod: Product) => {
     setEditingProductId(prod.id);
     setProductForm({
@@ -478,7 +471,6 @@ export default function Dashboard() {
 
     const qtyToSell = Number(saleForm.quantity) || 1; 
 
-    // ====== ПЕРЕВІРКА ЛІМІТУ ДЛЯ ТАРИФУ "МАЛИЙ БІЗНЕС" ======
     if (userPlan === "Малий бізнес" || userPlan === "Безкоштовно") {
       const currentMonth = new Date().toISOString().slice(0, 7);
       const salesThisMonthItems = sales
@@ -490,7 +482,6 @@ export default function Dashboard() {
         return; 
       }
     }
-    // =========================================================
     
     const selectedProd = products.find(p => p.id === saleForm.product_id); 
     if (!selectedProd) return;
@@ -533,7 +524,7 @@ export default function Dashboard() {
       cost_price: totalCost, 
       profit: profit, 
       customer_name: finalCustomerName,
-      status: isCod ? "В дорозі" : "Отримано",
+      status: "Очікує відправки",
       prepayment: isCod ? (Number(saleForm.prepayment) || 0) : 0,
       ttn: saleForm.ttn || "",
       employee_name: currentEmployeeName
@@ -573,6 +564,20 @@ export default function Dashboard() {
     }
     const { error } = await supabase.from("sales").update({ status: newStatus }).eq("id", sale.id);
     if (!error) setSales(sales.map(s => s.id === sale.id ? { ...s, status: newStatus } : s));
+  };
+
+  const handleBatchSend = async () => {
+    if (!selectedSales.length) return;
+    if (!confirm(`Відправити ${selectedSales.length} замовлень (сформувати реєстр)? Їх статус зміниться на "В дорозі".`)) return;
+    
+    const { error } = await supabase.from("sales").update({ status: "В дорозі" }).in("id", selectedSales);
+    if (error) { 
+      alert("Помилка бази даних: " + error.message); 
+      return; 
+    }
+    
+    setSales(sales.map(s => selectedSales.includes(s.id) ? { ...s, status: "В дорозі" } : s));
+    setSelectedSales([]);
   };
 
   const handleSaveExpense = async (e: React.FormEvent) => { 
@@ -692,9 +697,6 @@ export default function Dashboard() {
     alert("Номер картки скопійовано!");
   };
 
-  // ==========================================
-  // ЕКРАН ОПЛАТИ / ВИБОРУ ТАРИФУ (ПІСЛЯ 30 ДНІВ)
-  // ==========================================
   if (isTrialExpired) {
     const isBlockedStatus = userPlan === "Заблоковано";
     return (
@@ -755,7 +757,6 @@ export default function Dashboard() {
           .logout-btn { position: absolute; top: 40px; right: 6vw; background: transparent; border: none; padding: 10px 16px; color: #64748B; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; border-radius: 12px; font-family: inherit; z-index: 50;}
           .logout-btn:hover { color: #0F172A; background: #E2E8F0; }
 
-          /* Мобільна адаптація */
           @media (max-width: 1024px) {
             .payment-wrapper-full { display: block; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
             .payment-split-box { flex-direction: column; height: auto; min-height: 100vh; overflow: visible; width: 100%; }
@@ -896,9 +897,6 @@ export default function Dashboard() {
     );
   }
 
-  // ==========================================
-  // ЗВИЧАЙНИЙ РЕНДЕР ДАШБОРДУ
-  // ==========================================
   const visibleSales = userRole === "employee" ? sales.filter(s => s.employee_name === userEmail) : sales;
   const visibleExpenses = userRole === "employee" ? [] : expenses;
 
@@ -995,7 +993,6 @@ export default function Dashboard() {
         .grid-1 { display: grid; grid-template-columns: 1fr; gap: 16px; }
         .card { background-color: #FFFFFF; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); padding: 24px; border: 1px solid #F1F5F9; }
         
-        /* ЗАБЛОКОВАНІ ВІД СКРОЛУ МОДАЛКИ (Фіксовані) */
         .modal-overlay-fixed { position: fixed; inset: 0; background-color: rgba(15,23,42,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; overflow: hidden; }
         .modal-box-fixed { background-color: #FFF; border-radius: 24px; width: 100%; max-width: 560px; padding: 32px 36px; max-height: 90vh; overflow-y: auto; overflow-x: hidden; box-shadow: 0 24px 48px rgba(0,0,0,0.08); box-sizing: border-box; }
         
@@ -1017,7 +1014,6 @@ export default function Dashboard() {
 
         @media (max-width: 1024px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } .grid-2-asym { grid-template-columns: 1fr; } }
         
-        /* МОБІЛЬНА АДАПТАЦІЯ */
         @media (max-width: 768px) {
           .app-container { overflow-x: hidden; }
           .sidebar { position: fixed; height: 100vh; transform: translateX(-100%); } .sidebar.open { transform: translateX(0); }
@@ -1054,9 +1050,6 @@ export default function Dashboard() {
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 12px", marginBottom: "20px" }}>
             
-            {/* ========================================== */}
-            {/* ТУТ МІНЯЄТЬСЯ ЛОГОТИП (НЕОНОВИЙ КУБ)       */}
-            {/* ========================================== */}
             <div style={{ width: "36px", height: "36px", background: "linear-gradient(135deg, #10B981 0%, #047857 100%)", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 12px rgba(16,185,129,0.3)", border: "1px solid rgba(255,255,255,0.2)" }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
@@ -1064,7 +1057,6 @@ export default function Dashboard() {
                 <polyline points="2 12 12 17 22 12"></polyline>
               </svg>
             </div>
-            {/* ========================================== */}
 
             <div>
               <h1 style={{ fontWeight: "800", fontSize: "16px", lineHeight: "1.2" }}>Price Drop</h1>
@@ -1115,7 +1107,6 @@ export default function Dashboard() {
 
         <div className={`page-container print-container ${selectedClientForDetails ? "hide-on-print" : ""}`}>
           
-          {/* СУПЕР-АДМІН (ВЛАСНИК CRM) */}
           {activeTab === "Супер-Адмін" && userRole === "owner" && (
             <div className="card">
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: "32px", gap: "8px", textAlign: "center" }}>
@@ -1231,7 +1222,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ГОЛОВНА СТОРІНКА */}
           {activeTab === "Головна" && (
             <>
               <div className={userRole === "owner" ? "grid-4" : "grid-2"}>
@@ -1390,7 +1380,6 @@ export default function Dashboard() {
             </>
           )}
 
-          {/* СКЛАД */}
           {activeTab === "Склад" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <div className={userRole === "owner" ? "grid-3" : "grid-1"}>
@@ -1482,17 +1471,35 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ПРОДАЖІ */}
           {activeTab === "Продажі" && (
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
                 <h3 style={{ fontSize: "18px", fontWeight: "800", margin: "0 0 24px 0" }}>Журнал продажів</h3>
                 <button onClick={() => setIsSaleModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#1A9682", color: "#FFFFFF", border: "none", padding: "10px 16px", borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer", boxShadow: "0 4px 12px rgba(26, 150, 130, 0.2)" }}><Plus size={18} /><span>Продати</span></button>
               </div>
+              
+              {selectedSales.length > 0 && (
+                <div style={{ padding: "12px 16px", backgroundColor: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: "12px", marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "14px", fontWeight: "700", color: "#1E3A8A" }}>Обрано для реєстру: {selectedSales.length} шт.</span>
+                  <button onClick={handleBatchSend} style={{ backgroundColor: "#3B82F6", color: "#FFF", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}><Truck size={16}/> Відправити вибрані</button>
+                </div>
+              )}
+
               <div className="table-responsive">
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", minWidth: "700px" }}>
                   <thead>
                     <tr>
+                      <th className="table-head-cell" style={{ textAlign: "center", width: "40px" }}>
+                        <input 
+                          type="checkbox" 
+                          checked={filteredSales.filter(s => s.status === "Очікує відправки").length > 0 && selectedSales.length === filteredSales.filter(s => s.status === "Очікує відправки").length}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedSales(filteredSales.filter(s => s.status === "Очікує відправки").map(s => s.id));
+                            else setSelectedSales([]);
+                          }}
+                          style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                        />
+                      </th>
                       <th className="table-head-cell" style={{ textAlign: "left" }}>Клієнт / Статус</th>
                       <th className="table-head-cell" style={{ textAlign: "left" }}>Товар</th>
                       <th className="table-head-cell" style={{ textAlign: "left" }}>ТТН / Дата</th>
@@ -1504,9 +1511,22 @@ export default function Dashboard() {
                   <tbody>
                     {filteredSales.map((s) => (
                       <tr key={s.id} className="table-row">
+                        <td className="table-cell" style={{ textAlign: "center" }}>
+                          {s.status === "Очікує відправки" && (
+                            <input 
+                              type="checkbox" 
+                              checked={selectedSales.includes(s.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedSales([...selectedSales, s.id]);
+                                else setSelectedSales(selectedSales.filter(id => id !== s.id));
+                              }}
+                              style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                            />
+                          )}
+                        </td>
                         <td className="table-cell">
                           <p style={{ fontWeight: "700", color: "#0F172A", margin: "0 0 6px 0" }}>{s.customer_name || "Роздрібний покупець"}</p>
-                          <span style={{ fontSize: "11px", fontWeight: "700", padding: "4px 8px", borderRadius: "6px", backgroundColor: s.status === 'Отримано' ? '#ECFDF5' : s.status === 'Відмова' ? '#FEF2F2' : '#FFFBEB', color: s.status === 'Отримано' ? '#059669' : s.status === 'Відмова' ? '#DC2626' : '#D97706' }}>
+                          <span style={{ fontSize: "11px", fontWeight: "700", padding: "4px 8px", borderRadius: "6px", backgroundColor: s.status === 'Отримано' ? '#ECFDF5' : s.status === 'Відмова' ? '#FEF2F2' : s.status === 'Очікує відправки' ? '#EFF6FF' : '#FFFBEB', color: s.status === 'Отримано' ? '#059669' : s.status === 'Відмова' ? '#DC2626' : s.status === 'Очікує відправки' ? '#3B82F6' : '#D97706' }}>
                             {s.status}
                           </span>
                         </td>
@@ -1520,6 +1540,9 @@ export default function Dashboard() {
                           {s.prepayment > 0 && <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#0D9488", fontWeight: "600" }}>Перед: <FormatMoney amount={s.prepayment} /></p>}
                         </td>
                         <td className="table-cell">
+                          {s.status === 'Очікує відправки' && (
+                            <button onClick={() => handleUpdateSaleStatus(s, "В дорозі")} style={{ border: "none", backgroundColor: "#3B82F6", color: "#FFF", padding: "8px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: "700", marginBottom: "8px" }}><Truck size={16}/> Відправити</button>
+                          )}
                           {s.status === 'В дорозі' && (
                             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                               <button onClick={() => handleUpdateSaleStatus(s, "Отримано")} style={{ border: "none", backgroundColor: "#10B981", color: "#FFF", padding: "8px", borderRadius: "8px", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "12px", fontWeight: "700" }}><CheckCircle size={16}/> Отримано</button>
@@ -1540,7 +1563,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ВИТРАТИ */}
           {activeTab === "Витрати" && userRole === "owner" && (
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
@@ -1576,7 +1598,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ЗВІТИ */}
           {activeTab === "Звіти" && userRole === "owner" && (
             <div className="card">
               <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
@@ -1642,11 +1663,10 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* СПІВРОБІТНИКИ */}
           {activeTab === "Співробітники" && userRole === "owner" && (
             <div className="card">
               <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-                <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Команда та Аналітика</h3>
+                <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Команда та Аналітика ({filterMode === 'month' ? selectedMonth : selectedDate})</h3>
                 <div style={{ display: "flex", gap: "12px" }}>
                   <button onClick={() => window.print()} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#0F172A", color: "#FFFFFF", border: "none", padding: "10px 16px", borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer" }}><Printer size={18} /><span>PDF Звіт</span></button>
                   <button onClick={() => setIsEmployeeModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#0D9488", color: "#FFFFFF", border: "none", padding: "10px 16px", borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer" }}><Plus size={18} /><span>Додати</span></button>
@@ -1656,6 +1676,7 @@ export default function Dashboard() {
               <div style={{ display: "none" }} className="print:block mb-6">
                 <h2 style={{ fontSize: "24px", fontWeight: "800" }}>Звіт по співробітниках</h2>
                 <p style={{ color: "#64748B" }}>Створено: {new Date().toLocaleDateString('uk-UA')}</p>
+                <p style={{ color: "#64748B" }}>Період: {filterMode === 'month' ? selectedMonth : selectedDate}</p>
               </div>
               <div className="table-responsive">
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", minWidth: "600px" }}>
@@ -1671,7 +1692,7 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {employees.map((emp) => {
-                      const empSales = sales.filter(s => s.employee_name === emp.email || s.employee_name === emp.name);
+                      const empSales = filteredSales.filter(s => s.employee_name === emp.email || s.employee_name === emp.name);
                       const successfulEmpSales = empSales.filter(s => s.status !== 'Відмова');
                       
                       const empTurnover = empSales.reduce((acc, s) => acc + getSaleTurnover(s), 0);
@@ -1717,11 +1738,10 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* КЛІЄНТИ ТА АКТ ЗВІРКИ (ІСТОРІЯ) */}
           {activeTab === "Клієнти" && (
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                <h3 style={{ fontSize: "18px", fontWeight: "800", margin: "0 0 24px 0" }}>База клієнтів</h3>
+                <h3 style={{ fontSize: "18px", fontWeight: "800", margin: "0 0 24px 0" }}>База клієнтів ({filterMode === 'month' ? selectedMonth : selectedDate})</h3>
                 <button onClick={() => setIsClientModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "#0D9488", color: "#FFFFFF", border: "none", padding: "10px 16px", borderRadius: "12px", fontSize: "14px", fontWeight: "700", cursor: "pointer" }}><Plus size={18} /><span>Додати</span></button>
               </div>
               <div className="table-responsive">
@@ -1738,7 +1758,7 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {clients.map((cli) => {
-                      const clientSales = sales.filter(s => s.customer_name === cli.name);
+                      const clientSales = filteredSales.filter(s => s.customer_name === cli.name);
                       const totalC = clientSales.reduce((acc, s) => acc + getSaleTurnover(s), 0);
                       
                       return (
@@ -1768,7 +1788,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ПОСТАЧАЛЬНИКИ */}
           {activeTab === "Постачальники" && userRole === "owner" && (
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
@@ -1802,7 +1821,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* АНАЛІТИКА */}
           {activeTab === "Аналітика" && (
             <div className="card">
               <h3 style={{ fontSize: "18px", fontWeight: "800", margin: "0 0 24px 0" }}>
@@ -1823,7 +1841,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* НАЛАШТУВАННЯ */}
           {activeTab === "Налаштування" && (
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
@@ -1878,7 +1895,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ПІДТРИМКА */}
           {activeTab === "Підтримка" && (
             <div className="card" style={{ maxWidth: "600px", margin: "0 auto", textAlign: "center", padding: "40px 20px" }}>
               <div style={{ width: "64px", height: "64px", backgroundColor: "#ECFDF5", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px auto" }}>
@@ -1924,7 +1940,6 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* УСІ МОДАЛЬНІ ВІКНА (ДОДАВАННЯ ТОВАРУ, ПРОДАЖУ, ВИТРАТ ТОЩО) ТУТ */}
       {isProductModalOpen && (
         <div className="modal-overlay-fixed">
           <div className="modal-box-fixed">
@@ -2235,10 +2250,11 @@ export default function Dashboard() {
               <h2 style={{ fontSize: "24px", fontWeight: "800", marginBottom: "4px" }}>Акт звірки / Історія замовлень</h2>
               <p style={{ color: "#0F172A", fontSize: "16px", fontWeight: 700 }}>Клієнт: {selectedClientForDetails.name} ({selectedClientForDetails.phone})</p>
               <p style={{ color: "#64748B", fontSize: "12px", marginTop: "4px" }}>Створено: {new Date().toLocaleDateString('uk-UA')}</p>
+              <p style={{ color: "#64748B", fontSize: "12px", marginTop: "4px" }}>Період: {filterMode === 'month' ? selectedMonth : selectedDate}</p>
             </div>
 
             {(() => {
-              const clientSales = sales.filter(s => s.customer_name === selectedClientForDetails.name);
+              const clientSales = filteredSales.filter(s => s.customer_name === selectedClientForDetails.name);
               const totalTurnover = clientSales.reduce((acc, s) => acc + getSaleTurnover(s), 0);
               const totalProfit = clientSales.reduce((acc, s) => acc + getSaleProfit(s), 0);
               const totalItems = clientSales.filter(s => s.status !== 'Відмова').reduce((acc, s) => acc + Number(s.quantity), 0);
@@ -2328,10 +2344,11 @@ export default function Dashboard() {
               <h2 style={{ fontSize: "24px", fontWeight: "800", marginBottom: "4px" }}>Аналітика співробітника</h2>
               <p style={{ color: "#0F172A", fontSize: "16px", fontWeight: 700 }}>{selectedEmployeeForDetails.name} ({selectedEmployeeForDetails.role})</p>
               <p style={{ color: "#64748B", fontSize: "12px", marginTop: "4px" }}>Створено: {new Date().toLocaleDateString('uk-UA')}</p>
+              <p style={{ color: "#64748B", fontSize: "12px", marginTop: "4px" }}>Період: {filterMode === 'month' ? selectedMonth : selectedDate}</p>
             </div>
 
             {(() => {
-              const empSales = sales.filter(s => s.employee_name === selectedEmployeeForDetails.email || s.employee_name === selectedEmployeeForDetails.name);
+              const empSales = filteredSales.filter(s => s.employee_name === selectedEmployeeForDetails.email || s.employee_name === selectedEmployeeForDetails.name);
               const successfulSales = empSales.filter(s => s.status !== 'Відмова');
               const totalTurnover = empSales.reduce((acc, s) => acc + getSaleTurnover(s), 0);
               const totalProfit = empSales.reduce((acc, s) => acc + getSaleProfit(s), 0);
@@ -2414,7 +2431,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ЗУМ ФОТОГРАФІЇ (МОДАЛКА) */}
       {zoomedImage && (
         <div className="modal-overlay-fixed" style={{ zIndex: 10000, cursor: "zoom-out" }} onClick={() => setZoomedImage(null)}>
             <div style={{ position: "relative", maxWidth: "90%", maxHeight: "90%", display: "flex", justifyContent: "center", alignItems: "center" }} onClick={e => e.stopPropagation()}>
