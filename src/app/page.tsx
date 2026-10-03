@@ -198,7 +198,6 @@ export default function Dashboard() {
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
-  const [isEditSaleModalOpen, setIsEditSaleModalOpen] = useState(false);
   
   const [selectedClientForDetails, setSelectedClientForDetails] = useState<Client | null>(null);
   const [selectedEmployeeForDetails, setSelectedEmployeeForDetails] = useState<Employee | null>(null);
@@ -206,18 +205,12 @@ export default function Dashboard() {
 
   const [productSearch, setProductSearch] = useState("");
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   
   const [selectedSales, setSelectedSales] = useState<string[]>([]); 
 
   const [productForm, setProductForm] = useState({ name: "", category: "", price: "", costPrice: "", type: "clothing" as "clothing" | "simple" | "shoes", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" } as Record<string, any>, shoeSizes: initialShoeSizes as Record<string, any> });
-  const [saleItems, setSaleItems] = useState([{ product_id: "", selected_size: "", quantity: "1", total_price: "" }]);
-  const [saleForm, setSaleForm] = useState({ customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
-  const [editSaleForm, setEditSaleForm] = useState({ product_id: "", selected_size: "", quantity: "", total_price: "" });
-  const [isEditSaleModalOpen, setIsEditSaleModalOpen] = useState(false);
-  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
-  const [editSaleForm, setEditSaleForm] = useState({ quantity: "", total_price: "" });
+  const [saleForm, setSaleForm] = useState({ product_id: "", selected_size: "", quantity: "1", total_price: "", customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
   const [expenseForm, setExpenseForm] = useState({ description: "", category: "Загальні", amount: "", created_at: new Date().toISOString().slice(0, 10) });
   const [employeeForm, setEmployeeForm] = useState({ name: "", role: "", phone: "", email: "", password: "" });
   const [clientForm, setClientForm] = useState({ name: "", phone: "" });
@@ -409,98 +402,7 @@ export default function Dashboard() {
     setIsProductModalOpen(true);
   };
 
-  const handleOpenEditSale = (sale: Sale) => {
-    setEditingSaleId(sale.id);
-    setEditSaleForm({
-      quantity: String(sale.quantity),
-      total_price: String(sale.total_price)
-    });
-    setIsEditSaleModalOpen(true);
-  };
-
-  const handleSaveEditedSale = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const saleToEdit = sales.find(s => s.id === editingSaleId);
-    if (!saleToEdit) return;
-
-    const newQty = Number(editSaleForm.quantity) || 1;
-    const newTotalPrice = Number(editSaleForm.total_price) || 0;
-    const diff = newQty - saleToEdit.quantity;
-
-    const prod = products.find(p => p.id === saleToEdit.product_id);
-
-    if (saleToEdit.status !== 'Відмова' && prod && diff !== 0) {
-      let updatedSizes = { ...(prod.sizes || {}) };
-      let updatedTotalQty = prod.quantity || 0;
-
-      if ((prod.type === "clothing" || prod.type === "shoes") && saleToEdit.selected_size) {
-        const currentStock = updatedSizes[saleToEdit.selected_size] || 0;
-        if (diff > 0 && currentStock < diff) {
-          alert(`Недостатньо товару на складі! Залишок: ${currentStock}`);
-          return;
-        }
-        updatedSizes[saleToEdit.selected_size] = currentStock - diff;
-        updatedTotalQty -= diff;
-      } else {
-        if (diff > 0 && updatedTotalQty < diff) {
-          alert(`Недостатньо товару на складі! Залишок: ${updatedTotalQty}`);
-          return;
-        }
-        updatedTotalQty -= diff;
-      }
-
-      await supabase.from("products").update({ sizes: updatedSizes, quantity: updatedTotalQty }).eq("id", prod.id);
-      setProducts(products.map(p => p.id === prod.id ? { ...p, sizes: updatedSizes, quantity: updatedTotalQty } : p));
-    }
-
-    const unitCost = saleToEdit.quantity > 0 ? (saleToEdit.cost_price / saleToEdit.quantity) : (prod?.cost_price || 0);
-    const newCostPrice = unitCost * newQty;
-    const newProfit = newTotalPrice - newCostPrice;
-
-    const updates = {
-      quantity: newQty,
-      total_price: newTotalPrice,
-      cost_price: newCostPrice,
-      profit: newProfit
-    };
-
-    const { error } = await supabase.from("sales").update(updates).eq("id", saleToEdit.id);
-    if (error) {
-      alert("Помилка: " + error.message);
-      return;
-    }
-
-    setSales(sales.map(s => s.id === saleToEdit.id ? { ...s, ...updates } : s));
-    setIsEditSaleModalOpen(false);
-  };
-
-  const handleDeleteSale = async (id: string) => { 
-    if (!confirm("Видалити запис? Товар буде повернено на склад.")) return; 
-    
-    const saleToDelete = sales.find(s => s.id === id);
-
-    if (saleToDelete && saleToDelete.status !== 'Відмова') {
-      const selectedProd = products.find(p => p.id === saleToDelete.product_id);
-      if (selectedProd) {
-        let updatedSizes = { ...(selectedProd.sizes || {}) };
-        let updatedTotalQuantity = selectedProd.quantity || 0;
-        
-        if ((selectedProd.type === "clothing" || selectedProd.type === "shoes") && saleToDelete.selected_size) {
-          updatedSizes[saleToDelete.selected_size] = (updatedSizes[saleToDelete.selected_size] || 0) + saleToDelete.quantity;
-          updatedTotalQuantity += saleToDelete.quantity;
-        } else {
-          updatedTotalQuantity += saleToDelete.quantity;
-        }
-
-        await supabase.from("products").update({ sizes: updatedSizes, quantity: updatedTotalQuantity }).eq("id", selectedProd.id);
-        setProducts(products.map(p => p.id === selectedProd.id ? { ...p, sizes: updatedSizes, quantity: updatedTotalQuantity } : p));
-      }
-    }
-
-    await supabase.from("sales").delete().eq("id", id); 
-    setSales(sales.filter(s => s.id !== id)); 
-  };
-
+  const handleDeleteSale = async (id: string) => { if (!confirm("Видалити запис?")) return; await supabase.from("sales").delete().eq("id", id); setSales(sales.filter(s => s.id !== id)); };
   const handleDeleteExpense = async (id: string) => { if (!confirm("Видалити витрату?")) return; await supabase.from("expenses").delete().eq("id", id); setExpenses(expenses.filter(e => e.id !== id)); };
   const handleDeleteEmployee = async (id: string) => { if (!confirm("Видалити співробітника?")) return; await supabase.from("employees").delete().eq("id", id); setEmployees(employees.filter(e => e.id !== id)); };
   const handleDeleteClient = async (id: string) => { if (!confirm("Видалити клієнта?")) return; await supabase.from("clients").delete().eq("id", id); setClients(clients.filter(c => c.id !== id)); };
@@ -549,63 +451,58 @@ export default function Dashboard() {
     setProductForm({ name: "", category: "", price: "", costPrice: "", type: "clothing", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" }, shoeSizes: initialShoeSizes });
   };
 
-  const updateSaleItem = (index: number, field: string, value: any) => {
-    const newItems = [...saleItems];
-    newItems[index] = { ...newItems[index], [field]: value };
-    if (field === 'product_id') {
-      const prod = products.find(p => p.id === value);
-      newItems[index].total_price = prod ? String(prod.price * (Number(newItems[index].quantity) || 1)) : "";
-      const availableSizes = prod?.sizes ? Object.entries(prod.sizes).filter(([_, cnt]) => cnt > 0) : [];
-      newItems[index].selected_size = (prod?.type === "clothing" || prod?.type === "shoes") && availableSizes.length > 0 ? availableSizes[0][0] : "";
+  const handleSelectProductForSale = (prodId: string) => {
+    const selected = products.find(p => p.id === prodId);
+    if (selected) {
+      const availableSizes = selected.sizes ? Object.entries(selected.sizes).filter(([_, cnt]) => cnt > 0) : [];
+      const initialSize = (selected.type === "clothing" || selected.type === "shoes") && availableSizes.length > 0 ? availableSizes[0][0] : "";
+      setSaleForm({ ...saleForm, product_id: prodId, selected_size: initialSize, quantity: "1", total_price: selected.price.toString() });
     }
-    if (field === 'quantity') {
-      const prod = products.find(p => p.id === newItems[index].product_id);
-      if (prod) newItems[index].total_price = String(prod.price * (Number(value) || 1));
-    }
-    setSaleItems(newItems);
   };
 
-  const removeSaleItem = (index: number) => {
-    setSaleItems(saleItems.filter((_, i) => i !== index));
+  const handleSaleQuantityOrSizeChange = (qtyStr: string, sizeStr?: string) => {
+    const qty = Number(qtyStr) || 1; const currentProd = products.find(p => p.id === saleForm.product_id);
+    setSaleForm({ ...saleForm, quantity: qtyStr, selected_size: sizeStr !== undefined ? sizeStr : saleForm.selected_size, total_price: (currentProd ? currentProd.price * qty : 0).toString() });
   };
 
-const handleSaveSale = async (e: React.FormEvent) => {
+  const handleSaveSale = async (e: React.FormEvent) => {
     e.preventDefault(); 
-    if (!userId) return;
+    if (!userId || !saleForm.product_id) { alert("Оберіть товар для продажу!"); return; }
 
-    for (let item of saleItems) {
-        if (!item.product_id) { alert("Оберіть товар для всіх позицій у замовленні!"); return; }
-    }
-
-    const totalQtyToSell = saleItems.reduce((acc, item) => acc + (Number(item.quantity) || 1), 0);
+    const qtyToSell = Number(saleForm.quantity) || 1; 
 
     if (userPlan === "Малий бізнес" || userPlan === "Безкоштовно") {
       const currentMonth = new Date().toISOString().slice(0, 7);
-      const salesThisMonthItems = sales.filter(s => s.created_at.startsWith(currentMonth)).reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+      const salesThisMonthItems = sales
+        .filter(s => s.created_at.startsWith(currentMonth))
+        .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
       
-      if (salesThisMonthItems + totalQtyToSell > 20) {
-        alert(`ЛІМІТ ВИЧЕРПАНО!\n\nНа безкоштовному тарифі доступно максимум 20 проданих речей на місяць.`);
+      if (salesThisMonthItems + qtyToSell > 20) {
+        alert(`ЛІМІТ ВИЧЕРПАНО!\n\nНа безкоштовному тарифі доступно максимум 20 проданих речей на місяць.\nВже продано: ${salesThisMonthItems} шт.\nВи намагаєтесь продати ще: ${qtyToSell} шт.\n\nБудь ласка, перейдіть на платний тариф у налаштуваннях.`);
         return; 
       }
     }
+    
+    const selectedProd = products.find(p => p.id === saleForm.product_id); 
+    if (!selectedProd) return;
+    
+    const salePrice = Number(saleForm.total_price) || 0;
+    const unitCost = Number(selectedProd.cost_price || 0); 
+    const totalCost = unitCost * qtyToSell; 
+    const profit = salePrice - totalCost;
+    
+    let updatedSizes = { ...(selectedProd.sizes || {}) }; 
+    let updatedTotalQuantity = selectedProd.quantity || 0;
 
-    let localProducts = [...products];
-
-    for (let item of saleItems) {
-        const qty = Number(item.quantity) || 1;
-        const pIndex = localProducts.findIndex(p => p.id === item.product_id);
-        if (pIndex === -1) return;
-
-        let p = { ...localProducts[pIndex], sizes: { ...localProducts[pIndex].sizes } };
-        if (p.type === "clothing" || p.type === "shoes") {
-            const sz = item.selected_size || "";
-            if ((p.sizes[sz] || 0) < qty) { alert(`Недостатньо розміру ${sz} для товару "${p.name}"!`); return; }
-            p.sizes[sz] -= qty;
-        } else {
-            if (p.quantity < qty) { alert(`Недостатньо товару "${p.name}"!`); return; }
-        }
-        p.quantity -= qty;
-        localProducts[pIndex] = p;
+    if (selectedProd.type === "clothing" || selectedProd.type === "shoes" || (selectedProd.sizes && Object.keys(selectedProd.sizes).length > 0)) {
+      const sizeKey = saleForm.selected_size || ""; 
+      const currentSizeStock = updatedSizes[sizeKey] || 0;
+      if (currentSizeStock < qtyToSell) { alert(`Недостатньо розміру ${sizeKey}! В наявності: ${currentSizeStock} шт.`); return; }
+      updatedSizes[sizeKey] = currentSizeStock - qtyToSell; 
+      updatedTotalQuantity = Object.values(updatedSizes).reduce((a, b) => Number(a) + Number(b), 0);
+    } else {
+      if (updatedTotalQuantity < qtyToSell) { alert(`Недостатньо товару! В наявності: ${updatedTotalQuantity} шт.`); return; }
+      updatedTotalQuantity -= qtyToSell;
     }
 
     let finalCustomerName = "Роздрібний покупець";
@@ -617,44 +514,56 @@ const handleSaveSale = async (e: React.FormEvent) => {
     const isCod = saleForm.payment_type === "cod";
     const currentEmployeeName = userRole === "employee" ? userEmail : "Власник";
 
-    const salesToInsert = saleItems.map((item, idx) => {
-        const p = localProducts.find(prod => prod.id === item.product_id);
-        const qty = Number(item.quantity) || 1;
-        const salePrice = Number(item.total_price) || 0;
-        const unitCost = Number(p?.cost_price || 0);
-        const totalCost = unitCost * qty;
+    const newSale = { 
+      user_id: userId, 
+      product_id: saleForm.product_id || null, 
+      product_name: selectedProd.name || "Товар", 
+      selected_size: saleForm.selected_size || null, 
+      quantity: qtyToSell, 
+      total_price: salePrice, 
+      cost_price: totalCost, 
+      profit: profit, 
+      customer_name: finalCustomerName,
+      status: "Очікує відправки",
+      prepayment: isCod ? (Number(saleForm.prepayment) || 0) : 0,
+      ttn: saleForm.ttn || "",
+      employee_name: currentEmployeeName
+    };
 
-        return {
-            user_id: userId,
-            product_id: item.product_id,
-            product_name: p?.name || "Товар",
-            selected_size: item.selected_size || null,
-            quantity: qty,
-            total_price: salePrice,
-            cost_price: totalCost,
-            profit: salePrice - totalCost,
-            customer_name: finalCustomerName,
-            status: "Очікує відправки",
-            prepayment: idx === 0 && isCod ? (Number(saleForm.prepayment) || 0) : 0, 
-            ttn: saleForm.ttn || "",
-            employee_name: currentEmployeeName
-        };
-    });
-
-    const { data, error } = await supabase.from("sales").insert(salesToInsert).select();
+    const { data, error } = await supabase.from("sales").insert([newSale]).select();
     if (error) { alert("Помилка при збереженні продажу: " + error.message); return; }
 
-    const changedProducts = localProducts.filter((p, i) => p !== products[i]);
-    for (let p of changedProducts) {
-        await supabase.from("products").update({ sizes: p.sizes, quantity: p.quantity }).eq("id", p.id);
+    if (data) {
+      setSales(prev => prev.find(s => s.id === data[0].id) ? prev : [data[0] as Sale, ...prev]);
+      await supabase.from("products").update({ sizes: updatedSizes, quantity: updatedTotalQuantity }).eq("id", selectedProd.id);
+      setProducts(products.map(p => p.id === selectedProd.id ? { ...p, sizes: updatedSizes, quantity: updatedTotalQuantity } : p));
     }
-
-    setProducts(localProducts);
-    if (data) setSales(prev => [...data, ...prev]);
-
+    
     setIsSaleModalOpen(false); 
-    setSaleItems([{ product_id: "", selected_size: "", quantity: "1", total_price: "" }]);
-    setSaleForm({ customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
+    setSaleForm({ product_id: "", selected_size: "", quantity: "1", total_price: "", customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
+  };
+
+  const handleUpdateSaleStatus = async (sale: Sale, newStatus: string) => {
+    if (newStatus === "Відмова") {
+      if (!confirm("Клієнт відмовився? Товар буде повернуто на склад (сума передоплати не зараховується в прибуток).")) return;
+      const selectedProd = products.find(p => p.id === sale.product_id);
+      if (selectedProd) {
+        let updatedSizes = { ...selectedProd.sizes };
+        let updatedTotalQuantity = selectedProd.quantity || 0;
+        if ((selectedProd.type === "clothing" || selectedProd.type === "shoes") && sale.selected_size) {
+          updatedSizes[sale.selected_size] = (updatedSizes[sale.selected_size] || 0) + sale.quantity;
+          updatedTotalQuantity += sale.quantity;
+        } else {
+          updatedTotalQuantity += sale.quantity;
+        }
+        await supabase.from("products").update({ sizes: updatedSizes, quantity: updatedTotalQuantity }).eq("id", selectedProd.id);
+        setProducts(products.map(p => p.id === selectedProd.id ? { ...p, sizes: updatedSizes, quantity: updatedTotalQuantity } : p));
+      }
+    } else if (newStatus === "Отримано") {
+      if (!confirm("Підтверджуєте отримання посилки клієнтом? Повна сума буде зарахована в прибуток.")) return;
+    }
+    const { error } = await supabase.from("sales").update({ status: newStatus }).eq("id", sale.id);
+    if (!error) setSales(sales.map(s => s.id === sale.id ? { ...s, status: newStatus } : s));
   };
 
   const handleBatchSend = async () => {
@@ -1643,10 +1552,7 @@ const handleSaveSale = async (e: React.FormEvent) => {
                         </td>
                         <td className="table-cell" style={{ textAlign: "right" }}>
                           {userRole === "owner" && (
-                            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-                              <button onClick={() => handleOpenEditSale(s)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#3B82F6", padding: "8px" }} title="Редагувати"><Edit size={18} /></button>
-                              <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити"><Trash2 size={18} /></button>
-                            </div>
+                            <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }}><Trash2 size={18} /></button>
                           )}
                         </td>
                       </tr>
@@ -1745,8 +1651,7 @@ const handleSaveSale = async (e: React.FormEvent) => {
                           <td className="table-cell" style={{ fontWeight: "700", color: "#0D9488" }}>{s.quantity} шт.</td>
                           <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
                           <td className="table-cell" style={{ fontWeight: "800", color: itemProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={itemProfit} showSign={true}/></td>
-                          <td className="table-cell no-print" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                            <button onClick={() => handleOpenEditSale(s)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#3B82F6", padding: "8px" }} title="Редагувати продаж"><Edit size={18} /></button>
+                          <td className="table-cell no-print" style={{ textAlign: "right" }}>
                             <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж"><Trash2 size={18} /></button>
                           </td>
                         </tr>
@@ -2265,28 +2170,6 @@ const handleSaveSale = async (e: React.FormEvent) => {
                 <div style={{ width: "24px", height: "24px", borderRadius: "50%", backgroundColor: "#FFF", display: "flex", alignItems: "center", justifyContent: "center" }}><Check size={16} color="#1A9682" /></div>
                 Завершити продаж <ArrowRight size={20} />
               </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {isEditSaleModalOpen && (
-        <div className="modal-overlay-fixed">
-          <div className="modal-box-fixed">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Редагувати продаж</h3>
-              <button onClick={() => setIsEditSaleModalOpen(false)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B" }}><X size={18} /></button>
-            </div>
-            <form onSubmit={handleSaveEditedSale} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div>
-                <label style={{ fontSize: "13px", fontWeight: "700", color: "#475569", marginBottom: "6px", display: "block" }}>Кількість (шт.)</label>
-                <input required type="number" min="1" value={editSaleForm.quantity} onChange={e => setEditSaleForm({...editSaleForm, quantity: e.target.value})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", width: "100%", fontWeight: "600", color: "#0F172A" }} />
-              </div>
-              <div>
-                <label style={{ fontSize: "13px", fontWeight: "700", color: "#475569", marginBottom: "6px", display: "block" }}>Загальна сума (₴)</label>
-                <input required type="number" value={editSaleForm.total_price} onChange={e => setEditSaleForm({...editSaleForm, total_price: e.target.value})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", width: "100%", fontWeight: "600", color: "#0F172A" }} />
-              </div>
-              <button type="submit" style={{ width: "100%", backgroundColor: "#3B82F6", color: "#FFF", border: "none", padding: "16px", borderRadius: "12px", fontWeight: "800", fontSize: "15px", cursor: "pointer", marginTop: "8px", boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)" }}>Зберегти зміни</button>
             </form>
           </div>
         </div>
