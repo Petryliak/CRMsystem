@@ -212,7 +212,11 @@ export default function Dashboard() {
   const [selectedSales, setSelectedSales] = useState<string[]>([]); 
 
   const [productForm, setProductForm] = useState({ name: "", category: "", price: "", costPrice: "", type: "clothing" as "clothing" | "simple" | "shoes", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" } as Record<string, any>, shoeSizes: initialShoeSizes as Record<string, any> });
-  const [saleForm, setSaleForm] = useState({ product_id: "", selected_size: "", quantity: "1", total_price: "", customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
+  const [saleItems, setSaleItems] = useState([{ product_id: "", selected_size: "", quantity: "1", total_price: "" }]);
+  const [saleForm, setSaleForm] = useState({ customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
+  const [editSaleForm, setEditSaleForm] = useState({ product_id: "", selected_size: "", quantity: "", total_price: "" });
+  const [isEditSaleModalOpen, setIsEditSaleModalOpen] = useState(false);
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [editSaleForm, setEditSaleForm] = useState({ quantity: "", total_price: "" });
   const [expenseForm, setExpenseForm] = useState({ description: "", category: "Загальні", amount: "", created_at: new Date().toISOString().slice(0, 10) });
   const [employeeForm, setEmployeeForm] = useState({ name: "", role: "", phone: "", email: "", password: "" });
@@ -545,58 +549,63 @@ export default function Dashboard() {
     setProductForm({ name: "", category: "", price: "", costPrice: "", type: "clothing", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" }, shoeSizes: initialShoeSizes });
   };
 
-  const handleSelectProductForSale = (prodId: string) => {
-    const selected = products.find(p => p.id === prodId);
-    if (selected) {
-      const availableSizes = selected.sizes ? Object.entries(selected.sizes).filter(([_, cnt]) => cnt > 0) : [];
-      const initialSize = (selected.type === "clothing" || selected.type === "shoes") && availableSizes.length > 0 ? availableSizes[0][0] : "";
-      setSaleForm({ ...saleForm, product_id: prodId, selected_size: initialSize, quantity: "1", total_price: selected.price.toString() });
+  const updateSaleItem = (index: number, field: string, value: any) => {
+    const newItems = [...saleItems];
+    newItems[index] = { ...newItems[index], [field]: value };
+    if (field === 'product_id') {
+      const prod = products.find(p => p.id === value);
+      newItems[index].total_price = prod ? String(prod.price * (Number(newItems[index].quantity) || 1)) : "";
+      const availableSizes = prod?.sizes ? Object.entries(prod.sizes).filter(([_, cnt]) => cnt > 0) : [];
+      newItems[index].selected_size = (prod?.type === "clothing" || prod?.type === "shoes") && availableSizes.length > 0 ? availableSizes[0][0] : "";
     }
+    if (field === 'quantity') {
+      const prod = products.find(p => p.id === newItems[index].product_id);
+      if (prod) newItems[index].total_price = String(prod.price * (Number(value) || 1));
+    }
+    setSaleItems(newItems);
   };
 
-  const handleSaleQuantityOrSizeChange = (qtyStr: string, sizeStr?: string) => {
-    const qty = Number(qtyStr) || 1; const currentProd = products.find(p => p.id === saleForm.product_id);
-    setSaleForm({ ...saleForm, quantity: qtyStr, selected_size: sizeStr !== undefined ? sizeStr : saleForm.selected_size, total_price: (currentProd ? currentProd.price * qty : 0).toString() });
+  const removeSaleItem = (index: number) => {
+    setSaleItems(saleItems.filter((_, i) => i !== index));
   };
 
-  const handleSaveSale = async (e: React.FormEvent) => {
+const handleSaveSale = async (e: React.FormEvent) => {
     e.preventDefault(); 
-    if (!userId || !saleForm.product_id) { alert("Оберіть товар для продажу!"); return; }
+    if (!userId) return;
 
-    const qtyToSell = Number(saleForm.quantity) || 1; 
+    for (let item of saleItems) {
+        if (!item.product_id) { alert("Оберіть товар для всіх позицій у замовленні!"); return; }
+    }
+
+    const totalQtyToSell = saleItems.reduce((acc, item) => acc + (Number(item.quantity) || 1), 0);
 
     if (userPlan === "Малий бізнес" || userPlan === "Безкоштовно") {
       const currentMonth = new Date().toISOString().slice(0, 7);
-      const salesThisMonthItems = sales
-        .filter(s => s.created_at.startsWith(currentMonth))
-        .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+      const salesThisMonthItems = sales.filter(s => s.created_at.startsWith(currentMonth)).reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
       
-      if (salesThisMonthItems + qtyToSell > 20) {
-        alert(`ЛІМІТ ВИЧЕРПАНО!\n\nНа безкоштовному тарифі доступно максимум 20 проданих речей на місяць.\nВже продано: ${salesThisMonthItems} шт.\nВи намагаєтесь продати ще: ${qtyToSell} шт.\n\nБудь ласка, перейдіть на платний тариф у налаштуваннях.`);
+      if (salesThisMonthItems + totalQtyToSell > 20) {
+        alert(`ЛІМІТ ВИЧЕРПАНО!\n\nНа безкоштовному тарифі доступно максимум 20 проданих речей на місяць.`);
         return; 
       }
     }
-    
-    const selectedProd = products.find(p => p.id === saleForm.product_id); 
-    if (!selectedProd) return;
-    
-    const salePrice = Number(saleForm.total_price) || 0;
-    const unitCost = Number(selectedProd.cost_price || 0); 
-    const totalCost = unitCost * qtyToSell; 
-    const profit = salePrice - totalCost;
-    
-    let updatedSizes = { ...(selectedProd.sizes || {}) }; 
-    let updatedTotalQuantity = selectedProd.quantity || 0;
 
-    if (selectedProd.type === "clothing" || selectedProd.type === "shoes" || (selectedProd.sizes && Object.keys(selectedProd.sizes).length > 0)) {
-      const sizeKey = saleForm.selected_size || ""; 
-      const currentSizeStock = updatedSizes[sizeKey] || 0;
-      if (currentSizeStock < qtyToSell) { alert(`Недостатньо розміру ${sizeKey}! В наявності: ${currentSizeStock} шт.`); return; }
-      updatedSizes[sizeKey] = currentSizeStock - qtyToSell; 
-      updatedTotalQuantity = Object.values(updatedSizes).reduce((a, b) => Number(a) + Number(b), 0);
-    } else {
-      if (updatedTotalQuantity < qtyToSell) { alert(`Недостатньо товару! В наявності: ${updatedTotalQuantity} шт.`); return; }
-      updatedTotalQuantity -= qtyToSell;
+    let localProducts = [...products];
+
+    for (let item of saleItems) {
+        const qty = Number(item.quantity) || 1;
+        const pIndex = localProducts.findIndex(p => p.id === item.product_id);
+        if (pIndex === -1) return;
+
+        let p = { ...localProducts[pIndex], sizes: { ...localProducts[pIndex].sizes } };
+        if (p.type === "clothing" || p.type === "shoes") {
+            const sz = item.selected_size || "";
+            if ((p.sizes[sz] || 0) < qty) { alert(`Недостатньо розміру ${sz} для товару "${p.name}"!`); return; }
+            p.sizes[sz] -= qty;
+        } else {
+            if (p.quantity < qty) { alert(`Недостатньо товару "${p.name}"!`); return; }
+        }
+        p.quantity -= qty;
+        localProducts[pIndex] = p;
     }
 
     let finalCustomerName = "Роздрібний покупець";
@@ -608,56 +617,44 @@ export default function Dashboard() {
     const isCod = saleForm.payment_type === "cod";
     const currentEmployeeName = userRole === "employee" ? userEmail : "Власник";
 
-    const newSale = { 
-      user_id: userId, 
-      product_id: saleForm.product_id || null, 
-      product_name: selectedProd.name || "Товар", 
-      selected_size: saleForm.selected_size || null, 
-      quantity: qtyToSell, 
-      total_price: salePrice, 
-      cost_price: totalCost, 
-      profit: profit, 
-      customer_name: finalCustomerName,
-      status: "Очікує відправки",
-      prepayment: isCod ? (Number(saleForm.prepayment) || 0) : 0,
-      ttn: saleForm.ttn || "",
-      employee_name: currentEmployeeName
-    };
+    const salesToInsert = saleItems.map((item, idx) => {
+        const p = localProducts.find(prod => prod.id === item.product_id);
+        const qty = Number(item.quantity) || 1;
+        const salePrice = Number(item.total_price) || 0;
+        const unitCost = Number(p?.cost_price || 0);
+        const totalCost = unitCost * qty;
 
-    const { data, error } = await supabase.from("sales").insert([newSale]).select();
+        return {
+            user_id: userId,
+            product_id: item.product_id,
+            product_name: p?.name || "Товар",
+            selected_size: item.selected_size || null,
+            quantity: qty,
+            total_price: salePrice,
+            cost_price: totalCost,
+            profit: salePrice - totalCost,
+            customer_name: finalCustomerName,
+            status: "Очікує відправки",
+            prepayment: idx === 0 && isCod ? (Number(saleForm.prepayment) || 0) : 0, 
+            ttn: saleForm.ttn || "",
+            employee_name: currentEmployeeName
+        };
+    });
+
+    const { data, error } = await supabase.from("sales").insert(salesToInsert).select();
     if (error) { alert("Помилка при збереженні продажу: " + error.message); return; }
 
-    if (data) {
-      setSales(prev => prev.find(s => s.id === data[0].id) ? prev : [data[0] as Sale, ...prev]);
-      await supabase.from("products").update({ sizes: updatedSizes, quantity: updatedTotalQuantity }).eq("id", selectedProd.id);
-      setProducts(products.map(p => p.id === selectedProd.id ? { ...p, sizes: updatedSizes, quantity: updatedTotalQuantity } : p));
+    const changedProducts = localProducts.filter((p, i) => p !== products[i]);
+    for (let p of changedProducts) {
+        await supabase.from("products").update({ sizes: p.sizes, quantity: p.quantity }).eq("id", p.id);
     }
-    
-    setIsSaleModalOpen(false); 
-    setSaleForm({ product_id: "", selected_size: "", quantity: "1", total_price: "", customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
-  };
 
-  const handleUpdateSaleStatus = async (sale: Sale, newStatus: string) => {
-    if (newStatus === "Відмова") {
-      if (!confirm("Клієнт відмовився? Товар буде повернуто на склад (сума передоплати не зараховується в прибуток).")) return;
-      const selectedProd = products.find(p => p.id === sale.product_id);
-      if (selectedProd) {
-        let updatedSizes = { ...selectedProd.sizes };
-        let updatedTotalQuantity = selectedProd.quantity || 0;
-        if ((selectedProd.type === "clothing" || selectedProd.type === "shoes") && sale.selected_size) {
-          updatedSizes[sale.selected_size] = (updatedSizes[sale.selected_size] || 0) + sale.quantity;
-          updatedTotalQuantity += sale.quantity;
-        } else {
-          updatedTotalQuantity += sale.quantity;
-        }
-        await supabase.from("products").update({ sizes: updatedSizes, quantity: updatedTotalQuantity }).eq("id", selectedProd.id);
-        setProducts(products.map(p => p.id === selectedProd.id ? { ...p, sizes: updatedSizes, quantity: updatedTotalQuantity } : p));
-      }
-    } else if (newStatus === "Отримано") {
-      if (!confirm("Підтверджуєте отримання посилки клієнтом? Повна сума буде зарахована в прибуток.")) return;
-    }
-    const { error } = await supabase.from("sales").update({ status: newStatus }).eq("id", sale.id);
-    if (!error) setSales(sales.map(s => s.id === sale.id ? { ...s, status: newStatus } : s));
+    setProducts(localProducts);
+    if (data) setSales(prev => [...data, ...prev]);
+
+    setIsSaleModalOpen(false); 
+    setSaleItems([{ product_id: "", selected_size: "", quantity: "1", total_price: "" }]);
+    setSaleForm({ customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
   };
 
   const handleBatchSend = async () => {
