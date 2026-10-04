@@ -1,8 +1,4 @@
-﻿// ==========================================
-// PART 1
-// ==========================================
-
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
@@ -625,7 +621,7 @@ export default function Dashboard() {
         cost_price: totalCost, 
         profit: profit, 
         customer_name: finalCustomerName,
-        status: "Очікує відправки",
+        status: "Очікує відправки", 
         prepayment: itemPrepayment,
         ttn: saleForm.ttn || "",
         employee_name: currentEmployeeName,
