@@ -1725,7 +1725,9 @@ export default function Dashboard() {
               
               {selectedSales.length > 0 && (
                 <div style={{ padding: "12px 16px", backgroundColor: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: "12px", marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "14px", fontWeight: "700", color: "#1E3A8A" }}>Обрано для реєстру: {selectedSales.length} товарів</span>
+                  <span style={{ fontSize: "14px", fontWeight: "700", color: "#1E3A8A" }}>
+                    Обрано: {groupedSalesData.filter((g: any) => g.items.some((i: any) => selectedSales.includes(i.id))).length} замовлень ({selectedSales.length} товарів)
+                  </span>
                   <button onClick={handleBatchSend} style={{ backgroundColor: "#3B82F6", color: "#FFF", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "700", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}><Truck size={16}/> Відправити вибрані</button>
                 </div>
               )}
@@ -1763,8 +1765,11 @@ export default function Dashboard() {
                               checked={group.items.every((i: any) => selectedSales.includes(i.id))}
                               onChange={(e) => {
                                 const groupIds = group.items.map((i: any) => i.id);
-                                if (e.target.checked) setSelectedSales([...selectedSales, ...groupIds]);
-                                else setSelectedSales(selectedSales.filter(id => !groupIds.includes(id)));
+                                if (e.target.checked) {
+                                  setSelectedSales(Array.from(new Set([...selectedSales, ...groupIds])));
+                                } else {
+                                  setSelectedSales(selectedSales.filter(id => !groupIds.includes(id)));
+                                }
                               }}
                               style={{ cursor: "pointer", width: "16px", height: "16px" }}
                             />
