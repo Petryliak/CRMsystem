@@ -8,7 +8,7 @@ import {
   Users, Truck, PieChart, Settings, Calendar, 
   Wallet, TrendingUp, LogOut, Plus, Loader2, Image as ImageIcon, 
   Trash2, Briefcase, Printer, X, CheckCircle, XCircle, Menu,
-  Hash, Coins, User, Check, ArrowRight, ChevronLeft, ChevronRight, FileText, Shield, Send, UploadCloud, Copy, ShieldCheck, Mail, Search, Headset, Phone, Edit
+  Hash, Coins, User, Check, ArrowRight, ChevronLeft, ChevronRight, FileText, Shield, Send, UploadCloud, Copy, ShieldCheck, Mail, Search, Headset, Phone, Edit, Save
 } from "lucide-react";
 
 const SUPER_ADMIN_EMAIL = "davidpetrilak4@gmail.com"; 
@@ -152,6 +152,7 @@ interface Expense { id: string; description: string; category: string; amount: n
 interface Employee { id: string; name: string; role: string; phone: string; email?: string; password?: string; user_id?: string; }
 interface Client { id: string; name: string; phone: string; }
 interface Supplier { id: string; name: string; contact: string; }
+interface CartItem { id: string; product_id: string; product_name: string; selected_size: string; quantity: number; price: number; }
 
 const getSaleProfit = (s: Sale) => {
   if (s.status === 'Отримано') return s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
@@ -208,6 +209,9 @@ export default function Dashboard() {
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   
   const [selectedSales, setSelectedSales] = useState<string[]>([]); 
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+
+  const [editingSale, setEditingSale] = useState<Sale | null>(null);
 
   const [productForm, setProductForm] = useState({ name: "", category: "", price: "", costPrice: "", type: "clothing" as "clothing" | "simple" | "shoes", simpleQuantity: "", sizes: { XS: "", S: "", M: "", L: "", XL: "", XXL: "" } as Record<string, any>, shoeSizes: initialShoeSizes as Record<string, any> });
   const [saleForm, setSaleForm] = useState({ product_id: "", selected_size: "", quantity: "1", total_price: "", customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
@@ -402,7 +406,33 @@ export default function Dashboard() {
     setIsProductModalOpen(true);
   };
 
-  const handleDeleteSale = async (id: string) => { if (!confirm("Видалити запис?")) return; await supabase.from("sales").delete().eq("id", id); setSales(sales.filter(s => s.id !== id)); };
+  const handleDeleteSale = async (id: string) => { 
+    if (!confirm("Видалити запис та повернути товар на склад?")) return; 
+    
+    const saleToDelete = sales.find(s => s.id === id);
+    
+    if (saleToDelete && saleToDelete.product_id && saleToDelete.status !== 'Відмова') {
+      const prod = products.find(p => p.id === saleToDelete.product_id);
+      if (prod) {
+        let updatedSizes = { ...prod.sizes };
+        let updatedQty = prod.quantity || 0;
+        
+        if ((prod.type === 'clothing' || prod.type === 'shoes') && saleToDelete.selected_size) {
+          updatedSizes[saleToDelete.selected_size] = (updatedSizes[saleToDelete.selected_size] || 0) + saleToDelete.quantity;
+          updatedQty += saleToDelete.quantity;
+        } else {
+          updatedQty += saleToDelete.quantity;
+        }
+        
+        await supabase.from("products").update({ sizes: updatedSizes, quantity: updatedQty }).eq("id", prod.id);
+        setProducts(products.map(p => p.id === prod.id ? { ...p, sizes: updatedSizes, quantity: updatedQty } : p));
+      }
+    }
+
+    await supabase.from("sales").delete().eq("id", id); 
+    setSales(sales.filter(s => s.id !== id)); 
+  };
+
   const handleDeleteExpense = async (id: string) => { if (!confirm("Видалити витрату?")) return; await supabase.from("expenses").delete().eq("id", id); setExpenses(expenses.filter(e => e.id !== id)); };
   const handleDeleteEmployee = async (id: string) => { if (!confirm("Видалити співробітника?")) return; await supabase.from("employees").delete().eq("id", id); setEmployees(employees.filter(e => e.id !== id)); };
   const handleDeleteClient = async (id: string) => { if (!confirm("Видалити клієнта?")) return; await supabase.from("clients").delete().eq("id", id); setClients(clients.filter(c => c.id !== id)); };
@@ -465,11 +495,46 @@ export default function Dashboard() {
     setSaleForm({ ...saleForm, quantity: qtyStr, selected_size: sizeStr !== undefined ? sizeStr : saleForm.selected_size, total_price: (currentProd ? currentProd.price * qty : 0).toString() });
   };
 
+  const handleAddToCart = () => {
+    if (!saleForm.product_id) return;
+    const prod = products.find(p => p.id === saleForm.product_id);
+    if (!prod) return;
+    
+    const newItem: CartItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      product_id: prod.id,
+      product_name: prod.name,
+      selected_size: saleForm.selected_size,
+      quantity: Number(saleForm.quantity) || 1,
+      price: Number(saleForm.total_price) || 0
+    };
+    
+    setCartItems([...cartItems, newItem]);
+    setSaleForm({ ...saleForm, product_id: "", selected_size: "", quantity: "1", total_price: "" });
+  };
+
+  const handleRemoveFromCart = (id: string) => {
+    setCartItems(cartItems.filter(item => item.id !== id));
+  };
+
   const handleSaveSale = async (e: React.FormEvent) => {
     e.preventDefault(); 
-    if (!userId || !saleForm.product_id) { alert("Оберіть товар для продажу!"); return; }
+    if (!userId) return; 
 
-    const qtyToSell = Number(saleForm.quantity) || 1; 
+    let itemsToProcess = [...cartItems];
+    if (itemsToProcess.length === 0) {
+      if (!saleForm.product_id) { alert("Оберіть товар або додайте товари у список!"); return; }
+      itemsToProcess.push({
+        id: "temp",
+        product_id: saleForm.product_id,
+        product_name: products.find(p => p.id === saleForm.product_id)?.name || "",
+        selected_size: saleForm.selected_size,
+        quantity: Number(saleForm.quantity) || 1,
+        price: Number(saleForm.total_price) || 0
+      });
+    }
+
+    const totalQtyToSell = itemsToProcess.reduce((sum, item) => sum + item.quantity, 0);
 
     if (userPlan === "Малий бізнес" || userPlan === "Безкоштовно") {
       const currentMonth = new Date().toISOString().slice(0, 7);
@@ -477,32 +542,23 @@ export default function Dashboard() {
         .filter(s => s.created_at.startsWith(currentMonth))
         .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
       
-      if (salesThisMonthItems + qtyToSell > 20) {
-        alert(`ЛІМІТ ВИЧЕРПАНО!\n\nНа безкоштовному тарифі доступно максимум 20 проданих речей на місяць.\nВже продано: ${salesThisMonthItems} шт.\nВи намагаєтесь продати ще: ${qtyToSell} шт.\n\nБудь ласка, перейдіть на платний тариф у налаштуваннях.`);
+      if (salesThisMonthItems + totalQtyToSell > 20) {
+        alert(`ЛІМІТ ВИЧЕРПАНО!\n\nНа безкоштовному тарифі доступно максимум 20 проданих речей на місяць.\nВже продано: ${salesThisMonthItems} шт.\nВи намагаєтесь продати ще: ${totalQtyToSell} шт.\n\nБудь ласка, перейдіть на платний тариф у налаштуваннях.`);
         return; 
       }
     }
     
-    const selectedProd = products.find(p => p.id === saleForm.product_id); 
-    if (!selectedProd) return;
-    
-    const salePrice = Number(saleForm.total_price) || 0;
-    const unitCost = Number(selectedProd.cost_price || 0); 
-    const totalCost = unitCost * qtyToSell; 
-    const profit = salePrice - totalCost;
-    
-    let updatedSizes = { ...(selectedProd.sizes || {}) }; 
-    let updatedTotalQuantity = selectedProd.quantity || 0;
-
-    if (selectedProd.type === "clothing" || selectedProd.type === "shoes" || (selectedProd.sizes && Object.keys(selectedProd.sizes).length > 0)) {
-      const sizeKey = saleForm.selected_size || ""; 
-      const currentSizeStock = updatedSizes[sizeKey] || 0;
-      if (currentSizeStock < qtyToSell) { alert(`Недостатньо розміру ${sizeKey}! В наявності: ${currentSizeStock} шт.`); return; }
-      updatedSizes[sizeKey] = currentSizeStock - qtyToSell; 
-      updatedTotalQuantity = Object.values(updatedSizes).reduce((a, b) => Number(a) + Number(b), 0);
-    } else {
-      if (updatedTotalQuantity < qtyToSell) { alert(`Недостатньо товару! В наявності: ${updatedTotalQuantity} шт.`); return; }
-      updatedTotalQuantity -= qtyToSell;
+    for (const item of itemsToProcess) {
+      const prod = products.find(p => p.id === item.product_id);
+      if (!prod) continue;
+      
+      if (prod.type === "clothing" || prod.type === "shoes" || (prod.sizes && Object.keys(prod.sizes).length > 0)) {
+        const stock = prod.sizes[item.selected_size || ""] || 0;
+        if (stock < item.quantity) { alert(`Недостатньо розміру ${item.selected_size} для товару "${prod.name}"! В наявності: ${stock} шт.`); return; }
+      } else {
+        const stock = prod.quantity || 0;
+        if (stock < item.quantity) { alert(`Недостатньо товару "${prod.name}"! В наявності: ${stock} шт.`); return; }
+      }
     }
 
     let finalCustomerName = "Роздрібний покупець";
@@ -513,34 +569,84 @@ export default function Dashboard() {
 
     const isCod = saleForm.payment_type === "cod";
     const currentEmployeeName = userRole === "employee" ? userEmail : "Власник";
+    const totalPrepayment = isCod ? (Number(saleForm.prepayment) || 0) : 0;
+    
+    const newSalesToInsert = [];
+    const productsToUpdateMap = new Map();
 
-    const newSale = { 
-      user_id: userId, 
-      product_id: saleForm.product_id || null, 
-      product_name: selectedProd.name || "Товар", 
-      selected_size: saleForm.selected_size || null, 
-      quantity: qtyToSell, 
-      total_price: salePrice, 
-      cost_price: totalCost, 
-      profit: profit, 
-      customer_name: finalCustomerName,
-      status: "Очікує відправки",
-      prepayment: isCod ? (Number(saleForm.prepayment) || 0) : 0,
-      ttn: saleForm.ttn || "",
-      employee_name: currentEmployeeName
-    };
+    for (let i = 0; i < itemsToProcess.length; i++) {
+      const item = itemsToProcess[i];
+      const prod = products.find(p => p.id === item.product_id);
+      if (!prod) continue;
 
-    const { data, error } = await supabase.from("sales").insert([newSale]).select();
+      const unitCost = Number(prod.cost_price || 0); 
+      const totalCost = unitCost * item.quantity; 
+      const profit = item.price - totalCost;
+      
+      let currentProdState = productsToUpdateMap.get(prod.id) || { sizes: { ...(prod.sizes || {}) }, quantity: prod.quantity || 0 };
+
+      if (prod.type === "clothing" || prod.type === "shoes" || (prod.sizes && Object.keys(prod.sizes).length > 0)) {
+        currentProdState.sizes[item.selected_size || ""] -= item.quantity;
+        currentProdState.quantity = Object.values(currentProdState.sizes).reduce((a, b) => Number(a) + Number(b), 0);
+      } else {
+        currentProdState.quantity -= item.quantity;
+      }
+      productsToUpdateMap.set(prod.id, currentProdState);
+
+      const itemPrepayment = i === 0 ? totalPrepayment : 0;
+
+      newSalesToInsert.push({ 
+        user_id: userId, 
+        product_id: item.product_id, 
+        product_name: prod.name || "Товар", 
+        selected_size: item.selected_size || null, 
+        quantity: item.quantity, 
+        total_price: item.price, 
+        cost_price: totalCost, 
+        profit: profit, 
+        customer_name: finalCustomerName,
+        status: "Очікує відправки",
+        prepayment: itemPrepayment,
+        ttn: saleForm.ttn || "",
+        employee_name: currentEmployeeName
+      });
+    }
+
+    const { data, error } = await supabase.from("sales").insert(newSalesToInsert).select();
     if (error) { alert("Помилка при збереженні продажу: " + error.message); return; }
 
     if (data) {
-      setSales(prev => prev.find(s => s.id === data[0].id) ? prev : [data[0] as Sale, ...prev]);
-      await supabase.from("products").update({ sizes: updatedSizes, quantity: updatedTotalQuantity }).eq("id", selectedProd.id);
-      setProducts(products.map(p => p.id === selectedProd.id ? { ...p, sizes: updatedSizes, quantity: updatedTotalQuantity } : p));
+      setSales(prev => [...(data as Sale[]), ...prev]);
+      for (const [prodId, state] of productsToUpdateMap.entries()) {
+        await supabase.from("products").update({ sizes: state.sizes, quantity: state.quantity }).eq("id", prodId);
+        setProducts(prev => prev.map(p => p.id === prodId ? { ...p, sizes: state.sizes, quantity: state.quantity } : p));
+      }
     }
     
-    setIsSaleModalOpen(false); 
+    setIsSaleModalOpen(false);
+    setCartItems([]);
     setSaleForm({ product_id: "", selected_size: "", quantity: "1", total_price: "", customer_type: "Роздрібний покупець", customer_name: "", payment_type: "full", prepayment: "", ttn: "" });
+  };
+
+  const handleSaveEditedSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSale) return;
+    
+    const { error } = await supabase.from("sales").update({
+      product_name: editingSale.product_name,
+      ttn: editingSale.ttn,
+      quantity: editingSale.quantity,
+      total_price: editingSale.total_price,
+      profit: editingSale.profit
+    }).eq("id", editingSale.id);
+
+    if (error) {
+      alert("Помилка при редагуванні: " + error.message);
+      return;
+    }
+
+    setSales(sales.map(s => s.id === editingSale.id ? editingSale : s));
+    setEditingSale(null);
   };
 
   const handleUpdateSaleStatus = async (sale: Sale, newStatus: string) => {
@@ -1550,9 +1656,9 @@ export default function Dashboard() {
                             </div>
                           )}
                         </td>
-                        <td className="table-cell" style={{ textAlign: "right" }}>
+                        <td className="table-cell" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                           {userRole === "owner" && (
-                            <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }}><Trash2 size={18} /></button>
+                            <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити та повернути на склад"><Trash2 size={18} /></button>
                           )}
                         </td>
                       </tr>
@@ -1651,8 +1757,9 @@ export default function Dashboard() {
                           <td className="table-cell" style={{ fontWeight: "700", color: "#0D9488" }}>{s.quantity} шт.</td>
                           <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
                           <td className="table-cell" style={{ fontWeight: "800", color: itemProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={itemProfit} showSign={true}/></td>
-                          <td className="table-cell no-print" style={{ textAlign: "right" }}>
-                            <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж"><Trash2 size={18} /></button>
+                          <td className="table-cell no-print" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                            <button onClick={() => setEditingSale(s)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#3B82F6", padding: "8px" }} title="Редагувати запис"><Edit size={18} /></button>
+                            <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж та повернути на склад"><Trash2 size={18} /></button>
                           </td>
                         </tr>
                       );
@@ -2020,7 +2127,7 @@ export default function Dashboard() {
                   <p style={{ fontSize: "14px", color: "#64748B", margin: 0, fontWeight: "500" }}>Оберіть спосіб оплати</p>
                 </div>
               </div>
-              <button onClick={() => setIsSaleModalOpen(false)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B", transition: "all 0.2s", flexShrink: 0 }}><X size={20} /></button>
+              <button onClick={() => {setIsSaleModalOpen(false); setCartItems([]);}} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B", transition: "all 0.2s", flexShrink: 0 }}><X size={20} /></button>
             </div>
 
             <form onSubmit={handleSaveSale}>
@@ -2052,12 +2159,30 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "32px" }}>
-                
+              {/* Віджети кошика */}
+              {cartItems.length > 0 && (
+                <div style={{ marginBottom: "20px", border: "1px solid #1A9682", borderRadius: "16px", padding: "12px 16px", backgroundColor: "#F2FBF9" }}>
+                  <h4 style={{ margin: "0 0 12px 0", fontSize: "13px", color: "#047857", fontWeight: 800 }}>Кошик замовлення:</h4>
+                  {cartItems.map(ci => (
+                    <div key={ci.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", borderBottom: "1px solid #A7F3D0", paddingBottom: "8px" }}>
+                      <div>
+                        <span style={{ fontWeight: 700, fontSize: "14px", color: "#0F172A" }}>{ci.product_name}</span> {ci.selected_size && <span style={{fontSize:"12px", color:"#047857"}}>({ci.selected_size})</span>}<br/>
+                        <span style={{ fontSize: "12px", color: "#1A9682", fontWeight: 700 }}>{ci.quantity} шт. на суму: <FormatMoney amount={ci.price}/></span>
+                      </div>
+                      <button type="button" onClick={() => handleRemoveFromCart(ci.id)} style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", display: "flex", alignItems: "center" }}><X size={18}/></button>
+                    </div>
+                  ))}
+                  <div style={{ fontWeight: 800, textAlign: "right", marginTop: "12px", color: "#0F172A", fontSize: "15px" }}>
+                    Загальна сума: <FormatMoney amount={cartItems.reduce((s,i) => s + i.price, 0)} />
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "16px" }}>
                 <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
                   <div style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Package size={20} color="#64748B" /></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Товар</label>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Додати товар</label>
                     <CustomSelect 
                       value={saleForm.product_id}
                       onChange={(val: any) => handleSelectProductForSale(val)}
@@ -2069,21 +2194,49 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {selectedProduct && (selectedProduct.type === "clothing" || selectedProduct.type === "shoes") && (
-                  <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
-                    <div style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Hash size={20} color="#64748B" /></div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Розмір</label>
-                      <CustomSelect 
-                        value={saleForm.selected_size}
-                        onChange={(val: any) => handleSaleQuantityOrSizeChange(saleForm.quantity, val)}
-                        options={Object.entries(selectedProduct.sizes || {}).filter(([_, count]) => count > 0).map(([sz, cnt]) => ({ value: sz, label: `${sz} (В наявності: ${String(cnt)} шт.)` }))}
-                        placeholder="Оберіть розмір"
-                        triggerStyle={{ fontSize: "15px", fontWeight: 700, color: "#0F172A", width: "100%", padding: 0 }}
-                      />
+                {selectedProduct && (
+                  <>
+                    {(selectedProduct.type === "clothing" || selectedProduct.type === "shoes") && (
+                      <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
+                        <div style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Hash size={20} color="#64748B" /></div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Розмір</label>
+                          <CustomSelect 
+                            value={saleForm.selected_size}
+                            onChange={(val: any) => handleSaleQuantityOrSizeChange(saleForm.quantity, val)}
+                            options={Object.entries(selectedProduct.sizes || {}).filter(([_, count]) => count > 0).map(([sz, cnt]) => ({ value: sz, label: `${sz} (В наявності: ${String(cnt)} шт.)` }))}
+                            placeholder="Оберіть розмір"
+                            triggerStyle={{ fontSize: "15px", fontWeight: 700, color: "#0F172A", width: "100%", padding: 0 }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                      <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
+                        <div style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Hash size={20} color="#64748B" /></div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Кількість</label>
+                          <input type="number" min="1" value={saleForm.quantity} onChange={e => handleSaleQuantityOrSizeChange(e.target.value)} style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: "16px", fontWeight: 800, color: "#0F172A", padding: 0 }} />
+                        </div>
+                      </div>
+                      
+                      <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
+                        <div style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Coins size={20} color="#64748B" /></div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Сума (₴)</label>
+                          <input type="number" value={saleForm.total_price} onChange={e => setSaleForm({...saleForm, total_price: e.target.value})} style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: "16px", fontWeight: 800, color: "#0F172A", padding: 0 }} />
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                    
+                    <button type="button" onClick={handleAddToCart} style={{ width: "100%", backgroundColor: "#F8FAFC", color: "#1A9682", border: "2px dashed #1A9682", padding: "16px", borderRadius: "16px", fontWeight: "800", fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                      <ShoppingCart size={18} /> Додати цей товар в список 🛒
+                    </button>
+                  </>
                 )}
+
+                <div style={{ borderTop: "1px solid #F1F5F9", margin: "16px 0" }}></div>
 
                 <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
                   <div style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><User size={20} color="#64748B" /></div>
@@ -2118,7 +2271,7 @@ export default function Dashboard() {
 
                 {saleForm.customer_type === "Новий покупець" && (
                   <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
-                    <input required type="text" placeholder="Введіть ПІБ клієнта" value={saleForm.customer_name} onChange={e => setSaleForm({...saleForm, customer_name: e.target.value})} style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: "15px", fontWeight: 700, color: "#0F172A", padding: 0 }} />
+                    <input type="text" placeholder="Введіть ПІБ клієнта" value={saleForm.customer_name} onChange={e => setSaleForm({...saleForm, customer_name: e.target.value})} style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: "15px", fontWeight: 700, color: "#0F172A", padding: 0 }} />
                   </div>
                 )}
 
@@ -2146,29 +2299,56 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-                  <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
-                    <div style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Hash size={20} color="#64748B" /></div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Кількість</label>
-                      <input required type="number" min="1" value={saleForm.quantity} onChange={e => handleSaleQuantityOrSizeChange(e.target.value)} style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: "16px", fontWeight: 800, color: "#0F172A", padding: 0 }} />
-                    </div>
-                  </div>
-                  
-                  <div style={{ border: "1px solid #E2E8F0", borderRadius: "16px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "16px", backgroundColor: "#FFF" }}>
-                    <div style={{ width: "40px", height: "40px", borderRadius: "10px", backgroundColor: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Coins size={20} color="#64748B" /></div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ display: "block", fontSize: "11px", fontWeight: 700, color: "#94A3B8", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Загальна сума (₴)</label>
-                      <input required type="number" value={saleForm.total_price} onChange={e => setSaleForm({...saleForm, total_price: e.target.value})} style={{ width: "100%", border: "none", background: "transparent", outline: "none", fontSize: "16px", fontWeight: 800, color: "#0F172A", padding: 0 }} />
-                    </div>
-                  </div>
-                </div>
-
               </div>
               
               <button type="submit" style={{ width: "100%", backgroundColor: "#1A9682", color: "#FFF", border: "none", padding: "18px", borderRadius: "16px", fontWeight: "800", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", boxShadow: "0 10px 25px rgba(26,150,130,0.25)", transition: "all 0.2s" }}>
                 <div style={{ width: "24px", height: "24px", borderRadius: "50%", backgroundColor: "#FFF", display: "flex", alignItems: "center", justifyContent: "center" }}><Check size={16} color="#1A9682" /></div>
                 Завершити продаж <ArrowRight size={20} />
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модалка редагування продажу зі Звітів */}
+      {editingSale && (
+        <div className="modal-overlay-fixed">
+          <div className="modal-box-fixed">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+              <h3 style={{ fontSize: "20px", fontWeight: "800", margin: 0 }}>Редагування продажу</h3>
+              <button onClick={() => setEditingSale(null)} style={{ border: "none", backgroundColor: "#F1F5F9", borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#64748B" }}><X size={18} /></button>
+            </div>
+            
+            <form onSubmit={handleSaveEditedSale} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: 700, color: "#64748B", marginBottom: "4px", display: "block" }}>Назва товару</label>
+                <input required type="text" value={editingSale.product_name} onChange={e => setEditingSale({...editingSale, product_name: e.target.value})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", width: "100%", fontWeight: "700" }} />
+              </div>
+              
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: 700, color: "#64748B", marginBottom: "4px", display: "block" }}>ТТН</label>
+                <input type="text" value={editingSale.ttn || ""} onChange={e => setEditingSale({...editingSale, ttn: e.target.value})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", width: "100%" }} />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                <div>
+                  <label style={{ fontSize: "12px", fontWeight: 700, color: "#64748B", marginBottom: "4px", display: "block" }}>Кількість</label>
+                  <input required type="number" min="1" value={editingSale.quantity} onChange={e => setEditingSale({...editingSale, quantity: Number(e.target.value)})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", width: "100%" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: "12px", fontWeight: 700, color: "#64748B", marginBottom: "4px", display: "block" }}>Сума продажу (₴)</label>
+                  <input required type="number" value={editingSale.total_price} onChange={e => setEditingSale({...editingSale, total_price: Number(e.target.value)})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #CBD5E1", fontSize: "14px", width: "100%" }} />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: 700, color: "#64748B", marginBottom: "4px", display: "block" }}>Чистий дохід (прибуток ₴)</label>
+                <input required type="number" value={editingSale.profit !== undefined ? editingSale.profit : (editingSale.total_price - editingSale.cost_price)} onChange={e => setEditingSale({...editingSale, profit: Number(e.target.value)})} style={{ padding: "14px", borderRadius: "12px", border: "1px solid #10B981", fontSize: "14px", width: "100%", backgroundColor: "#F0FDF4", fontWeight: 800, color: "#047857" }} />
+                <p style={{ fontSize: "11px", color: "#94A3B8", marginTop: "4px", lineHeight: "1.4" }}>Зміна даних тут не впливає автоматично на залишки складу. Якщо був обмін, краще видалити цей продаж і провести новий.</p>
+              </div>
+              
+              <button type="submit" style={{ width: "100%", backgroundColor: "#3B82F6", color: "#FFF", border: "none", padding: "16px", borderRadius: "12px", fontWeight: "800", fontSize: "15px", cursor: "pointer", marginTop: "8px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                <Save size={18} /> Зберегти зміни
               </button>
             </form>
           </div>
