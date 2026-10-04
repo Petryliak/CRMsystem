@@ -1881,41 +1881,52 @@ export default function Dashboard() {
                   <p style={{ fontSize: "13px", color: "#64748B", marginBottom: "6px", fontWeight: "600" }}>Чистий результат</p><p style={{ fontSize: "28px", color: netProfit >= 0 ? "#10B981" : "#EF4444", fontWeight: "800", margin: 0 }}><FormatMoney amount={netProfit} /></p>
                 </div>
               </div>
-
-              <h4 style={{ fontSize: "16px", fontWeight: "800", color: "#0F172A", marginBottom: "16px", marginTop: "32px", borderTop: "1px solid #F1F5F9", paddingTop: "24px" }}>Деталізація проданих товарів</h4>
+<h4 style={{ fontSize: "16px", fontWeight: "800", color: "#0F172A", marginBottom: "16px", marginTop: "32px", borderTop: "1px solid #F1F5F9", paddingTop: "24px" }}>Деталізація проданих товарів</h4>
               <div className="table-responsive">
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px", minWidth: "700px" }}>
                   <thead>
                     <tr>
                       <th className="table-head-cell" style={{ textAlign: "left" }}>Дата продажу</th>
-                      <th className="table-head-cell" style={{ textAlign: "left" }}>Назва товару</th>
+                      <th className="table-head-cell" style={{ textAlign: "left" }}>Товари (Замовлення)</th>
                       <th className="table-head-cell" style={{ textAlign: "left" }}>Дані клієнта / ТТН</th>
-                      <th className="table-head-cell" style={{ textAlign: "left" }}>Кількість</th>
                       <th className="table-head-cell" style={{ textAlign: "right" }}>Сума продажу</th>
                       <th className="table-head-cell" style={{ textAlign: "right" }}>Чистий дохід</th> 
                       <th className="table-head-cell no-print" style={{ textAlign: "right" }}>Дії</th> 
                     </tr>
                   </thead>
                   <tbody>
-                    {successfulSales.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", color: "#94A3B8", paddingTop: "20px" }}>Немає проданих товарів за цей період</td></tr>}
-                    {successfulSales.map(s => {
-                      const itemProfit = s.profit !== undefined ? s.profit : (Number(s.total_price) - Number(s.cost_price));
+                    {groupedSalesData.filter((g: any) => g.main_status !== 'Відмова').length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", color: "#94A3B8", paddingTop: "20px" }}>Немає проданих товарів за цей період</td></tr>}
+                    {groupedSalesData.filter((g: any) => g.main_status !== 'Відмова').map((group: any) => {
+                      const groupProfit = group.items.reduce((sum: number, item: any) => sum + (item.profit !== undefined ? item.profit : (Number(item.total_price) - Number(item.cost_price))), 0);
+                      
                       return (
-                        <tr key={s.id} className="table-row">
-                          <td className="table-cell" style={{ color: "#64748B", fontWeight: "600" }}>{new Date(s.created_at).toLocaleDateString('uk-UA')}</td>
-                          <td className="table-cell" style={{ fontWeight: "700", color: "#0F172A" }}>{s.product_name} {s.selected_size ? <span style={{ color: "#94A3B8" }}>({s.selected_size})</span> : ""}</td>
+                        <tr key={group.id} className="table-row">
+                          <td className="table-cell" style={{ color: "#64748B", fontWeight: "600", verticalAlign: "top" }}>{new Date(group.created_at).toLocaleDateString('uk-UA')}</td>
+                          
                           <td className="table-cell">
-                            <p style={{ fontWeight: "700", margin: "0 0 4px 0", color: "#0F172A" }}>{s.customer_name || "Роздрібний покупець"}</p>
+                            {group.items.map((item: any, idx: number) => (
+                              <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: idx !== group.items.length - 1 ? "8px" : "0", paddingBottom: idx !== group.items.length - 1 ? "8px" : "0", borderBottom: idx !== group.items.length - 1 ? "1px dashed #E2E8F0" : "none" }}>
+                                <div>
+                                  <span style={{ fontWeight: "700", color: "#0F172A" }}>{item.product_name}</span> {item.selected_size ? <span style={{ color: "#64748B", fontWeight: "600" }}>({item.selected_size})</span> : ""}
+                                  <span style={{ fontSize: "12px", color: "#0D9488", fontWeight: "700", marginLeft: "8px" }}>{item.quantity || 1} шт.</span>
+                                </div>
+                                <button className="no-print" onClick={() => handleOpenEdit(item)} style={{ background: "none", border: "none", color: "#3B82F6", cursor: "pointer", padding: "4px" }} title="Обміняти / Редагувати"><Edit size={16}/></button>
+                              </div>
+                            ))}
+                          </td>
+
+                          <td className="table-cell" style={{ verticalAlign: "top" }}>
+                            <p style={{ fontWeight: "700", margin: "0 0 4px 0", color: "#0F172A" }}>{group.customer_name || "Роздрібний покупець"}</p>
                             <span style={{ fontSize: "12px", color: "#64748B", fontWeight: "600", backgroundColor: "#F1F5F9", padding: "4px 8px", borderRadius: "6px" }}>
-                              {s.ttn ? `ТТН: ${s.ttn}` : "Оплата без ТТН"}
+                              {group.ttn ? `ТТН: ${group.ttn}` : "Оплата без ТТН"}
                             </span>
                           </td>
-                          <td className="table-cell" style={{ fontWeight: "700", color: "#0D9488" }}>{s.quantity} шт.</td>
-                          <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right" }}><FormatMoney amount={s.total_price} /></td>
-                          <td className="table-cell" style={{ fontWeight: "800", color: itemProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}><FormatMoney amount={itemProfit} showSign={true}/></td>
-                          <td className="table-cell no-print" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                            <button onClick={() => handleOpenEdit(s)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#3B82F6", padding: "8px" }} title="Обміняти товар / Редагувати запис"><Edit size={18} /></button>
-                            <button onClick={() => handleDeleteSale(s.id)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити продаж та повернути на склад"><Trash2 size={18} /></button>
+                          <td className="table-cell" style={{ fontWeight: "800", color: "#0F172A", textAlign: "right", verticalAlign: "top" }}><FormatMoney amount={group.total_group_price} /></td>
+                          <td className="table-cell" style={{ fontWeight: "800", color: groupProfit >= 0 ? "#10B981" : "#EF4444", textAlign: "right", verticalAlign: "top" }}><FormatMoney amount={groupProfit} showSign={true}/></td>
+                          <td className="table-cell no-print" style={{ textAlign: "right", whiteSpace: "nowrap", verticalAlign: "top" }}>
+                            <button onClick={() => {
+                              group.items.forEach((item: any) => handleDeleteSale(item.id));
+                            }} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#EF4444", padding: "8px" }} title="Видалити всю групу та повернути на склад"><Trash2 size={18} /></button>
                           </td>
                         </tr>
                       );
