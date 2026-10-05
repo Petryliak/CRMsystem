@@ -34,8 +34,7 @@ export default function LoginPage() {
       localStorage.setItem('referral_code', savedRef);
     }
     
-    // 5. Виходимо з усіх "завислих" сесій
-    supabase.auth.signOut().catch(() => {});
+
 
     // Відстеження зміни пароля
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
